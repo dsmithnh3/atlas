@@ -15,6 +15,9 @@ struct RawConcept: Codable {
     let summary: String?
     let textSpan: String // the exact text from the document
     let confidence: Double?
+    let level: String?       // "concept" or "entity" — nil for flat extraction
+    let parentLabel: String? // label of parent concept (for entities)
+    let entities: [RawConcept]? // nested entities when using hierarchical extraction
 }
 
 // MARK: - Raw Edge (from AI)
@@ -54,6 +57,16 @@ struct ExtractionResponse: Codable {
     let edges: [RawEdge]
 }
 
+// MARK: - Raw Merge Proposal (from AI)
+
+struct RawMergeProposal: Codable {
+    let labelA: String
+    let labelB: String
+    let confidence: Double
+    let reason: String
+    let mergeType: String? // "exactMatch", "semanticEquivalent", "partialOverlap"
+}
+
 // MARK: - Atlas Model Protocol
 
 protocol AtlasModel: Sendable {
@@ -65,6 +78,20 @@ protocol AtlasModel: Sendable {
     func proposeEdges(between concepts: [String], context: String) async throws -> [RawEdge]
     func summarizeConcept(_ label: String, sourceText: String) async throws -> String
     func answerQuestion(_ question: String, context: String) async throws -> AnswerWithCitations
+    func proposeMerges(
+        documentAConcepts: [(label: String, summary: String?)],
+        documentBConcepts: [(label: String, summary: String?)]
+    ) async throws -> [RawMergeProposal]
+}
+
+extension AtlasModel {
+    func proposeMerges(
+        documentAConcepts: [(label: String, summary: String?)],
+        documentBConcepts: [(label: String, summary: String?)]
+    ) async throws -> [RawMergeProposal] {
+        // Default: no LLM-based merges — backends override when supported
+        return []
+    }
 }
 
 // MARK: - AI Backend Type
