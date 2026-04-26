@@ -32,6 +32,8 @@ struct KnowledgeMapView: View {
 
     // Callback to navigate PDF (set by parent)
     var onNavigateToPage: ((Int, CGRect?) -> Void)?
+    // Active node from bidirectional sync (set by parent)
+    var activeNodeID: UUID?
 
     private var filteredNodeIDs: Set<UUID> {
         guard !searchQuery.isEmpty else { return [] }
@@ -61,7 +63,7 @@ struct KnowledgeMapView: View {
                         layout: layout,
                         zoomLevel: $zoomLevel,
                         selectedNodeID: $interaction.selectedNodeID,
-                        activeNodeID: nil,
+                        activeNodeID: activeNodeID,
                         highlightedNodeIDs: filteredNodeIDs,
                         viewScale: interaction.viewScale,
                         viewOffset: interaction.viewOffset
@@ -104,10 +106,13 @@ struct KnowledgeMapView: View {
                         .padding(.trailing, 8)
                 }
             }
-            // Bottom: processing indicator
+            // Bottom: processing indicator or scanned PDF banner
             .overlay(alignment: .bottom) {
                 if pipeline.isProcessing {
                     processingIndicator
+                        .padding(8)
+                } else if pipeline.scannedPDFDetected && graph.nodeCount == 0 {
+                    scannedPDFBanner
                         .padding(8)
                 }
             }
@@ -370,15 +375,65 @@ struct KnowledgeMapView: View {
     // MARK: - Processing Indicator
 
     private var processingIndicator: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text(pipeline.statusMessage)
-                .font(.caption)
-                .foregroundColor(.secondary)
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: pipeline.progress)
+                    .frame(width: 200)
+
+                HStack {
+                    Text(pipeline.statusMessage)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+
+                    if pipeline.totalPages > 0 {
+                        Text("\(pipeline.currentPage + 1)/\(pipeline.totalPages) pages")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+            }
+
+            Button("Cancel") {
+                pipeline.cancel()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
+        .padding(12)
+        .frame(width: 360)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
+    }
+
+    // MARK: - Scanned PDF Banner
+
+    private var scannedPDFBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.title3)
+                .foregroundColor(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Scanned PDF Detected")
+                    .font(.caption.bold())
+                Text("This PDF appears to be scanned or image-only. No text could be extracted.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button("Run OCR") {
+                startExtraction()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(12)
+        .frame(maxWidth: 420)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
     }
 
     // MARK: - Actions
@@ -387,9 +442,6 @@ struct KnowledgeMapView: View {
         guard let url = documentURL else { return }
         guard let document = PDFDocument(url: url) else { return }
         log.info("[MapView] startExtraction: \(url.lastPathComponent), \(document.pageCount) pages")
-        Task {
-            await pipeline.processFullDocument(document: document, documentURL: url, graph: graph, aiService: aiService)
-            log.info("[MapView] Done. Graph: \(graph.nodeCount) nodes, \(graph.edgeCount) edges")
-        }
+        pipeline.processFullDocument(document: document, documentURL: url, graph: graph, aiService: aiService)
     }
 }
