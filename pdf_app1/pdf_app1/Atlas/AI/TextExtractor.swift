@@ -7,6 +7,8 @@
 
 import Foundation
 import PDFKit
+import Vision
+import AppKit
 
 // MARK: - Page Text Block
 
@@ -106,6 +108,100 @@ class TextExtractor {
         let range = pageText.range(of: text)
         guard range.location != NSNotFound else { return nil }
         return page.selection(for: range)
+    }
+
+    // MARK: - Vision OCR Fallback
+
+    /// OCR-extract text from pages that have no embedded text layer.
+    /// Processes one page at a time to limit memory usage.
+    func ocrExtractPages(from document: PDFDocument, pageRange: Range<Int>) async -> [PageExtractionResult] {
+        let clampedRange = max(0, pageRange.lowerBound)..<min(document.pageCount, pageRange.upperBound)
+        var results: [PageExtractionResult] = []
+
+        for pageIndex in clampedRange {
+            if Task.isCancelled { break }
+            guard let page = document.page(at: pageIndex) else { continue }
+            let result = await ocrExtractPage(page, at: pageIndex)
+            results.append(result)
+        }
+        return results
+    }
+
+    /// Render a single PDF page to CGImage at 300 DPI and run Vision OCR.
+    private func ocrExtractPage(_ page: PDFPage, at pageIndex: Int) async -> PageExtractionResult {
+        let pageBounds = page.bounds(for: .mediaBox)
+        let dpi: CGFloat = 300
+        let scale = dpi / 72.0
+        let width = Int(pageBounds.width * scale)
+        let height = Int(pageBounds.height * scale)
+
+        // Render page to CGImage
+        guard width > 0, height > 0,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                  data: nil, width: width, height: height,
+                  bitsPerComponent: 8, bytesPerRow: 0,
+                  space: colorSpace,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return PageExtractionResult(pageIndex: pageIndex, fullText: "", blocks: [])
+        }
+
+        ctx.setFillColor(CGColor.white)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        ctx.scaleBy(x: scale, y: scale)
+        page.draw(with: .mediaBox, to: ctx)
+
+        guard let cgImage = ctx.makeImage() else {
+            return PageExtractionResult(pageIndex: pageIndex, fullText: "", blocks: [])
+        }
+
+        // Run Vision OCR
+        return await withCheckedContinuation { continuation in
+            let request = VNRecognizeTextRequest { request, error in
+                guard let observations = request.results as? [VNRecognizedTextObservation], error == nil else {
+                    continuation.resume(returning: PageExtractionResult(pageIndex: pageIndex, fullText: "", blocks: []))
+                    return
+                }
+
+                var fullTextParts: [String] = []
+                var blocks: [PageTextBlock] = []
+
+                for observation in observations {
+                    guard let topCandidate = observation.topCandidates(1).first else { continue }
+                    let text = topCandidate.string
+                    fullTextParts.append(text)
+
+                    // Convert normalized Vision bbox to PDF page coordinates
+                    let vBox = observation.boundingBox
+                    let pdfBox = CGRect(
+                        x: vBox.origin.x * pageBounds.width + pageBounds.origin.x,
+                        y: vBox.origin.y * pageBounds.height + pageBounds.origin.y,
+                        width: vBox.width * pageBounds.width,
+                        height: vBox.height * pageBounds.height
+                    )
+
+                    blocks.append(PageTextBlock(
+                        text: text,
+                        pageIndex: pageIndex,
+                        boundingBox: pdfBox,
+                        blockType: .unknown
+                    ))
+                }
+
+                let fullText = fullTextParts.joined(separator: "\n")
+                continuation.resume(returning: PageExtractionResult(pageIndex: pageIndex, fullText: fullText, blocks: blocks))
+            }
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(returning: PageExtractionResult(pageIndex: pageIndex, fullText: "", blocks: []))
+            }
+        }
     }
 
     /// Extract text with context (surrounding pages) for AI processing
