@@ -1,0 +1,36 @@
+# Test Strategy
+
+## Goals
+- Validate core state managers behave deterministically.
+- Prevent regressions in project persistence, recent files persistence, and annotation persistence.
+- Make tests reusable for future features by providing common fixtures/helpers.
+
+## Scope
+- Unit tests
+  - Projects: naming, ordering, persistence, bookmark resolution abstraction
+  - Recent files: add/remove/dedupe logic, persistence, bookmark resolution abstraction
+  - Undo/redo stack behavior
+  - Search: history behavior and trimming
+- Integration tests
+  - PDF annotation persistence: add highlight, save to disk, reload, verify annotation exists
+
+## Test Types
+- Unit
+  - Focused, deterministic, no UI.
+  - Uses injected dependencies (bookmarker, storage URL, UserDefaults suite).
+- Integration
+  - Uses real PDFKit `PDFDocument.write(to:)` with temporary directory URLs.
+
+## Fixtures & Helpers
+- Temporary directory helper per-test.
+- In-memory bookmarker that encodes a URL to `Data` and back.
+- Dedicated `UserDefaults(suiteName:)` per test class.
+
+## Running
+- Add an Xcode Unit Test target (once) and include the `pdf_app1Tests/*.swift` sources.
+- Run from Xcode with `⌘U` or from CLI:
+  - `xcodebuild test -project pdf_app1/pdf_app1.xcodeproj -scheme pdf_app1 -destination 'platform=macOS'`
+
+## CI Guidance (optional)
+- Prefer running `xcodebuild test` on macOS runners.
+- Keep integration tests limited to temporary directory I/O only.
