@@ -30,7 +30,7 @@ struct SourceAnchor: Identifiable, Codable, Hashable {
 }
 
 // MARK: - Concept Node
-struct ConceptNode: Identifiable, Codable, Hashable {
+struct ConceptNode: Identifiable, Hashable {
     let id: UUID
     var label: String
     var type: ConceptType
@@ -41,7 +41,10 @@ struct ConceptNode: Identifiable, Codable, Hashable {
     var confidence: Double
     var isPinned: Bool
     var position: CGPoint?
-    var parentChapterID: UUID?
+    var parentChapterID: UUID?  // deprecated — use parentConceptID
+    var level: NodeLevel
+    var parentConceptID: UUID?
+    var highlightColorIndex: Int?
 
     init(
         id: UUID = UUID(),
@@ -54,7 +57,10 @@ struct ConceptNode: Identifiable, Codable, Hashable {
         confidence: Double = 1.0,
         isPinned: Bool = false,
         position: CGPoint? = nil,
-        parentChapterID: UUID? = nil
+        parentChapterID: UUID? = nil,
+        level: NodeLevel = .concept,
+        parentConceptID: UUID? = nil,
+        highlightColorIndex: Int? = nil
     ) {
         self.id = id
         self.label = label
@@ -67,6 +73,36 @@ struct ConceptNode: Identifiable, Codable, Hashable {
         self.isPinned = isPinned
         self.position = position
         self.parentChapterID = parentChapterID
+        self.level = level
+        self.parentConceptID = parentConceptID
+        self.highlightColorIndex = highlightColorIndex
+    }
+}
+
+// MARK: - ConceptNode Codable (backward-compatible)
+extension ConceptNode: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, label, type, summary, sourceAnchors, readingState, expansionState
+        case confidence, isPinned, position, parentChapterID
+        case level, parentConceptID, highlightColorIndex
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        label = try c.decode(String.self, forKey: .label)
+        type = try c.decode(ConceptType.self, forKey: .type)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        sourceAnchors = try c.decode([SourceAnchor].self, forKey: .sourceAnchors)
+        readingState = try c.decode(ReadingState.self, forKey: .readingState)
+        expansionState = try c.decode(ExpansionState.self, forKey: .expansionState)
+        confidence = try c.decode(Double.self, forKey: .confidence)
+        isPinned = try c.decode(Bool.self, forKey: .isPinned)
+        position = try c.decodeIfPresent(CGPoint.self, forKey: .position)
+        parentChapterID = try c.decodeIfPresent(UUID.self, forKey: .parentChapterID)
+        level = try c.decodeIfPresent(NodeLevel.self, forKey: .level) ?? .concept
+        parentConceptID = try c.decodeIfPresent(UUID.self, forKey: .parentConceptID)
+        highlightColorIndex = try c.decodeIfPresent(Int.self, forKey: .highlightColorIndex)
     }
 }
 
@@ -197,6 +233,31 @@ class KnowledgeGraph {
         }
     }
 
+    // MARK: - Hierarchy Queries
+
+    func conceptNodes() -> [ConceptNode] {
+        allNodes.filter { $0.level == .concept }
+    }
+
+    func entities(for conceptID: UUID) -> [ConceptNode] {
+        allNodes.filter { $0.parentConceptID == conceptID }
+    }
+
+    func parentConcept(of entityID: UUID) -> ConceptNode? {
+        guard let entity = nodes[entityID], let parentID = entity.parentConceptID else { return nil }
+        return nodes[parentID]
+    }
+
+    // MARK: - Highlight Color Assignment
+
+    var highlightColorCounter: Int = 0
+
+    func nextHighlightColorIndex() -> Int {
+        let index = highlightColorCounter
+        highlightColorCounter = (highlightColorCounter + 1) % SourceHighlightPalette.colors.count
+        return index
+    }
+
     // MARK: - Bulk Operations
 
     func clear() {
@@ -204,6 +265,7 @@ class KnowledgeGraph {
         edges.removeAll()
         adjacency.removeAll()
         documentProcessingState.removeAll()
+        highlightColorCounter = 0
     }
 
     func merge(from other: KnowledgeGraph) {
