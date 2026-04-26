@@ -1,0 +1,125 @@
+//
+//  GraphStore.swift
+//  Atlas
+//
+//  Persistent storage for knowledge graphs
+//  Stores one graph file per document, keyed by URL hash
+//
+
+import Foundation
+import CryptoKit
+
+class GraphStore {
+    static let shared = GraphStore()
+
+    private let fileManager = FileManager.default
+    private var saveWorkItem: DispatchWorkItem?
+    private let saveDebounceInterval: TimeInterval = 1.0
+
+    private var graphsDirectory: URL {
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("Atlas/graphs", isDirectory: true)
+    }
+
+    init() {
+        try? fileManager.createDirectory(at: graphsDirectory, withIntermediateDirectories: true)
+    }
+
+    // MARK: - File Path Helpers
+
+    private func graphFileURL(for documentURL: URL) -> URL {
+        let hash = SHA256.hash(data: Data(documentURL.absoluteString.utf8))
+        let hashString = hash.prefix(16).map { String(format: "%02x", $0) }.joined()
+        return graphsDirectory.appendingPathComponent("\(hashString).json")
+    }
+
+    private func projectGraphFileURL(for projectID: UUID) -> URL {
+        graphsDirectory.appendingPathComponent("project_\(projectID.uuidString).json")
+    }
+
+    // MARK: - Save / Load per Document
+
+    func save(_ graph: KnowledgeGraph, for documentURL: URL) {
+        do {
+            let data = try graph.encode()
+            let fileURL = graphFileURL(for: documentURL)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            print("GraphStore: Failed to save graph for \(documentURL.lastPathComponent): \(error)")
+        }
+    }
+
+    func load(for documentURL: URL) -> KnowledgeGraph? {
+        let fileURL = graphFileURL(for: documentURL)
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let graph = KnowledgeGraph()
+            try graph.decode(from: data)
+            return graph
+        } catch {
+            print("GraphStore: Failed to load graph for \(documentURL.lastPathComponent): \(error)")
+            return nil
+        }
+    }
+
+    // MARK: - Save / Load per Project
+
+    func saveProjectGraph(_ graph: KnowledgeGraph, projectID: UUID) {
+        do {
+            let data = try graph.encode()
+            let fileURL = projectGraphFileURL(for: projectID)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            print("GraphStore: Failed to save project graph \(projectID): \(error)")
+        }
+    }
+
+    func loadProjectGraph(projectID: UUID) -> KnowledgeGraph? {
+        let fileURL = projectGraphFileURL(for: projectID)
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let graph = KnowledgeGraph()
+            try graph.decode(from: data)
+            return graph
+        } catch {
+            print("GraphStore: Failed to load project graph \(projectID): \(error)")
+            return nil
+        }
+    }
+
+    // MARK: - Debounced Save
+
+    func scheduleSave(_ graph: KnowledgeGraph, for documentURL: URL) {
+        saveWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.save(graph, for: documentURL)
+        }
+        saveWorkItem = workItem
+        DispatchQueue.global(qos: .utility).asyncAfter(
+            deadline: .now() + saveDebounceInterval,
+            execute: workItem
+        )
+    }
+
+    // MARK: - Delete
+
+    func deleteGraph(for documentURL: URL) {
+        let fileURL = graphFileURL(for: documentURL)
+        try? fileManager.removeItem(at: fileURL)
+    }
+
+    func deleteProjectGraph(projectID: UUID) {
+        let fileURL = projectGraphFileURL(for: projectID)
+        try? fileManager.removeItem(at: fileURL)
+    }
+
+    // MARK: - Query
+
+    func hasGraph(for documentURL: URL) -> Bool {
+        fileManager.fileExists(atPath: graphFileURL(for: documentURL).path)
+    }
+}
