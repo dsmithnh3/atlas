@@ -269,6 +269,7 @@ struct MultiDocumentView: View {
     @State private var paneMode: PaneMode = .split
     @State private var mapZoomLevel: SemanticZoomLevel = .concept
     @State private var syncManager = BidirectionalSyncManager()
+    @State private var highlightBridge = HighlightSyncBridge()
     @State private var showCommandPalette = false
     @State private var sidebarSection: SidebarSection = .projects
     @State private var projectsQuery: String = ""
@@ -319,6 +320,18 @@ struct MultiDocumentView: View {
                     )
                     .padding(.top, 100)
                     Spacer()
+                }
+            }
+        }
+        .overlay {
+            if let item = alertManager.alertItem {
+                CompactAlertView(item: item) {
+                    alertManager.alertItem = nil
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .zIndex(100)
+                .onAppear {
+                    showCommandPalette = false
                 }
             }
         }
@@ -650,18 +663,19 @@ struct MultiDocumentView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 1) {
-                        ForEach(recentFilesManager.recentFiles, id: \.path) { url in
+                        ForEach(Array(recentFilesManager.recentFiles.enumerated()), id: \.element.path) { index, url in
+                            let isInaccessible = recentFilesManager.inaccessibleFiles.contains(index)
                             HStack(spacing: 6) {
-                                Image(systemName: "doc.fill")
+                                Image(systemName: isInaccessible ? "exclamationmark.triangle.fill" : "doc.fill")
                                     .font(.system(size: 11))
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(isInaccessible ? .orange : .blue)
                                     .frame(width: 14)
 
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(url.lastPathComponent)
                                         .font(.system(size: 12))
                                         .lineLimit(1)
-                                    Text(url.deletingLastPathComponent().lastPathComponent)
+                                    Text(isInaccessible ? "File not accessible" : url.deletingLastPathComponent().lastPathComponent)
                                         .font(.system(size: 10))
                                         .foregroundColor(.secondary)
                                         .lineLimit(1)
@@ -671,9 +685,37 @@ struct MultiDocumentView: View {
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
+                            .opacity(isInaccessible ? 0.5 : 1.0)
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                documentManager.openDocument(url)
+                                let result = documentManager.openDocument(url)
+                                switch result {
+                                case .success, .alreadyOpen:
+                                    break
+                                case .tooManyTabs:
+                                    alertManager.showAlert(title: "Too Many Tabs", message: "Close some tabs before opening a new document.")
+                                case .fileNotReadable:
+                                    alertManager.showAlert(
+                                        title: "File Not Accessible",
+                                        message: "This file can no longer be accessed. It may have been moved or deleted.",
+                                        primaryButton: "Remove from Recents",
+                                        secondaryButton: "Cancel",
+                                        primaryAction: { recentFilesManager.removeInaccessibleFile(at: index) }
+                                    )
+                                case .invalidPDF:
+                                    alertManager.showAlert(
+                                        title: "Invalid PDF",
+                                        message: "This file is not a valid PDF document.",
+                                        primaryButton: "Remove from Recents",
+                                        secondaryButton: "Cancel",
+                                        primaryAction: { recentFilesManager.removeInaccessibleFile(at: index) }
+                                    )
+                                }
+                            }
+                            .contextMenu {
+                                Button("Remove from Recents", role: .destructive) {
+                                    recentFilesManager.removeFiles(at: IndexSet(integer: index))
+                                }
                             }
                             .background(
                                 RoundedRectangle(cornerRadius: 5)
@@ -710,16 +752,28 @@ struct MultiDocumentView: View {
                             graph: knowledgeGraph,
                             zoomLevel: $mapZoomLevel,
                             documentURL: document.url,
-                            onNavigateToPage: { pageIndex, _ in
-                                // Navigate the PDF to the given page
+                            onNavigateToPage: { pageIndex, boundingBox in
+                                // Navigate the PDF to the given page with optional bounding box
                                 NotificationCenter.default.post(
                                     name: NSNotification.Name("NavigateToPage"),
-                                    object: pageIndex
+                                    object: pageIndex,
+                                    userInfo: boundingBox.map { ["boundingBox": $0] }
                                 )
-                            }
+                            },
+                            activeNodeID: syncManager.activeNodeID
                         )
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onChange(of: knowledgeGraph.nodeCount) { _, newCount in
+                        // Refresh persistent highlights when graph changes
+                        if newCount > 0, let doc = documentManager.selectedDocument {
+                            highlightBridge.refreshHighlights(
+                                document: doc.document,
+                                graph: knowledgeGraph,
+                                documentURL: doc.url
+                            )
+                        }
+                    }
                 } else {
                     // Empty state when no document is selected
                     emptyStateView
