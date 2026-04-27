@@ -109,10 +109,9 @@ struct MapCanvasRenderer: View {
     // MARK: - Nodes
 
     private func drawNodes(context: GraphicsContext, transform: CGAffineTransform, size: CGSize) {
-        // Draw entities first, then concepts on top
+        // Draw deeper hierarchy levels first, top themes on top
         let sortedNodes = graph.allNodes.sorted { a, b in
-            if a.level == b.level { return false }
-            return a.level == .entity
+            a.hierarchyLevel > b.hierarchyLevel
         }
 
         // Precompute entity counts per concept to avoid O(n) filter per node per frame
@@ -134,12 +133,10 @@ struct MapCanvasRenderer: View {
             let isConcept = node.level == .concept
             let isMultiDoc = node.sourceAnchors.contains { $0.documentURL != node.sourceAnchors.first?.documentURL }
 
-            // Dynamic node size — concepts are larger
             let hasSummary = node.summary != nil && viewScale >= 0.7
-            let baseW: CGFloat = isConcept ? 200 : (hasSummary ? 180 : 140)
-            let baseH: CGFloat = isConcept ? (hasSummary ? 60 : 42) : (hasSummary ? 50 : 34)
-            let nodeW = baseW * viewScale
-            let nodeH = baseH * viewScale
+            let sizing = NodeSizing.forLevel(node.hierarchyLevel, hasSummary: hasSummary)
+            let nodeW = sizing.baseWidth * viewScale
+            let nodeH = sizing.baseHeight * viewScale
             let cr: CGFloat = 8 * viewScale
 
             let rect = CGRect(x: tp.x - nodeW / 2, y: tp.y - nodeH / 2, width: nodeW, height: nodeH)
@@ -147,7 +144,7 @@ struct MapCanvasRenderer: View {
 
             // Far zoom: dots only
             if viewScale < 0.35 {
-                let ds: CGFloat = isDimmed ? 4 : (isConcept ? 10 : 6)
+                let ds: CGFloat = isDimmed ? 4 : sizing.dotSize
                 let dr = CGRect(x: tp.x - ds/2, y: tp.y - ds/2, width: ds, height: ds)
                 context.fill(Path(ellipseIn: dr), with: .color(isDimmed ? node.type.color.opacity(0.2) : node.type.color))
                 continue
@@ -159,19 +156,19 @@ struct MapCanvasRenderer: View {
             if isSelected { bg = Color.accentColor.opacity(0.18) }
             else if isHighlighted { bg = node.type.color.opacity(0.12) }
             else if isActive { bg = node.type.color.opacity(0.10) }
-            else { bg = Color(nsColor: .controlBackgroundColor).opacity(isConcept ? 0.95 : 0.85) }
+            else { bg = Color(nsColor: .controlBackgroundColor).opacity(sizing.bgOpacity) }
 
             let nodePath = Path(roundedRect: rect, cornerSize: CGSize(width: cr, height: cr))
             context.fill(nodePath, with: .color(bg.opacity(bgAlpha)))
 
-            // Border — concepts get thicker, multi-doc nodes get a distinctive border
+            // Border
             let borderColor: Color
             if isSelected { borderColor = .accentColor }
             else if isHighlighted { borderColor = node.type.color }
             else if isMultiDoc { borderColor = .orange.opacity(0.6) }
             else { borderColor = isConcept ? node.type.color.opacity(0.4) : .gray.opacity(0.3) }
 
-            let bw: CGFloat = isSelected || isHighlighted ? 2 : (isConcept ? 1.5 : 1)
+            let bw: CGFloat = isSelected || isHighlighted ? 2 : sizing.borderWidth
             if node.confidence < 0.6 {
                 context.stroke(nodePath, with: .color(borderColor.opacity(bgAlpha)), style: StrokeStyle(lineWidth: bw, dash: [4, 3]))
             } else if isMultiDoc {
@@ -182,15 +179,15 @@ struct MapCanvasRenderer: View {
 
             guard viewScale >= 0.45 else { continue }
 
-            // Type color strip on left — thicker for concepts
-            let stripW: CGFloat = (isConcept ? 4 : 3) * viewScale
+            // Type color strip on left
+            let stripW: CGFloat = sizing.colorStripWidth * viewScale
             let stripPath = Path(roundedRect: CGRect(x: rect.minX, y: rect.minY, width: stripW, height: rect.height),
                                  cornerSize: CGSize(width: cr, height: cr))
             context.fill(stripPath, with: .color(node.type.color.opacity(isDimmed ? 0.2 : 0.8)))
 
-            // Label — concepts get bolder, larger text
-            let fontSize = max(10, (isConcept ? 12 : 11) * viewScale)
-            let fontWeight: Font.Weight = isConcept ? .bold : .semibold
+            // Label
+            let fontSize = max(10, sizing.fontSize * viewScale)
+            let fontWeight = sizing.fontWeight
             let labelX = rect.minX + stripW + 4 * viewScale
             let label = Text(node.label)
                 .font(.system(size: fontSize, weight: fontWeight))
