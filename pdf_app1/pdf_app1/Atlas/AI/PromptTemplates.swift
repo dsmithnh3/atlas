@@ -175,6 +175,122 @@ enum PromptTemplates {
         """
     }
 
+    // MARK: - Deep Mode Pass 1: Fact Extraction
+
+    static func deepFactExtraction(text: String, documentTitle: String, pageRange: Range<Int>) -> String {
+        return """
+        You are a knowledge extraction system performing detailed fact extraction from "\(documentTitle)" (pages \(pageRange.lowerBound + 1)-\(pageRange.upperBound)).
+
+        Extract every distinct fact, claim, definition, observation, or result stated in the text. Each fact should be atomic — one idea per fact.
+
+        For each fact, provide an EXACT verbatim quote (textSpan) from the source text.
+
+        Return ONLY a JSON object:
+        {
+          "facts": [
+            {
+              "claim": "One-sentence statement of the fact",
+              "textSpan": "exact verbatim quote from text supporting this fact",
+              "type": "claim|definition|observation|example|result|method",
+              "confidence": 0.95
+            }
+          ]
+        }
+
+        Return valid JSON only, no markdown formatting.
+
+        TEXT:
+        \(text)
+        """
+    }
+
+    // MARK: - Deep Mode Pass 2: Clustering & Deduplication
+
+    static func deepClustering(facts: [RawFact], documentTitle: String) -> String {
+        let factsJSON = facts.enumerated().map { i, f in
+            "  {\n    \"index\": \(i),\n    \"claim\": \"\(f.claim.replacingOccurrences(of: "\"", with: "\\\""))\",\n    \"type\": \"\(f.type)\"\n  }"
+        }.joined(separator: ",\n")
+
+        return """
+        You are organizing extracted facts from "\(documentTitle)" into a hierarchical concept map.
+
+        Here are \(facts.count) facts extracted from the document (each has an index):
+        [\(factsJSON)]
+
+        ## Instructions
+
+        1. Group related facts into 3-12 high-level CONCEPTS (themes/topics). Each concept should represent a coherent theme.
+
+        2. For each concept, identify 1-5 ENTITIES (specific definitions, examples, techniques, people, results) that belong under it.
+
+        3. DEDUPLICATE: If multiple facts express the same idea (even with different wording), group them under the same concept. Use factIndices to reference which input facts belong to each concept/entity.
+
+        4. Every concept and entity must reference at least one fact via factIndices.
+
+        Return ONLY a JSON object:
+        {
+          "concepts": [
+            {
+              "label": "Short Name (2-5 words)",
+              "type": "concept|theorem|method|claim",
+              "summary": "One sentence description synthesizing the grouped facts",
+              "level": "concept",
+              "factIndices": [0, 3, 7],
+              "entities": [
+                {
+                  "label": "Specific Entity Name",
+                  "type": "definition|example|person|dataset|result|equation",
+                  "summary": "One sentence description",
+                  "parentLabel": "Short Name",
+                  "factIndices": [3]
+                }
+              ]
+            }
+          ]
+        }
+
+        Return valid JSON only, no markdown formatting.
+        """
+    }
+
+    // MARK: - Deep Mode Pass 3: Cross-Referencing
+
+    static func deepCrossReference(concepts: [(label: String, summary: String?)], documentTitle: String) -> String {
+        let conceptList = concepts.map { c in
+            if let s = c.summary { return "- \(c.label): \(s)" }
+            return "- \(c.label)"
+        }.joined(separator: "\n")
+
+        return """
+        You are building a knowledge map for "\(documentTitle)". Given these concepts, propose relationships between them.
+
+        Concepts:
+        \(conceptList)
+
+        ## Instructions
+
+        Propose edges between concepts. Consider:
+        - Hierarchical relationships (subtopicOf): one concept is a subtopic of another
+        - Dependency relationships (dependsOn): one concept requires understanding another
+        - Similarity (sameTopic): concepts that overlap significantly
+        - Other relationships: contradicts, extends, uses, defines, exampleOf, partOf
+
+        Edge types: dependsOn, contradicts, exampleOf, defines, extends, cites, sameTopic, partOf, uses, subtopicOf
+
+        Return ONLY a JSON array:
+        [
+          {
+            "sourceLabel": "...",
+            "targetLabel": "...",
+            "type": "subtopicOf|dependsOn|...",
+            "confidence": 0.9
+          }
+        ]
+
+        Only propose edges you are confident about. Return valid JSON only.
+        """
+    }
+
     // MARK: - Summarization
 
     static func summarize(conceptLabel: String, sourceText: String) -> String {

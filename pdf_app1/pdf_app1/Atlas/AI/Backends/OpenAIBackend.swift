@@ -99,6 +99,10 @@ final class OpenAIBackend: AtlasModel, @unchecked Sendable {
         return merges
     }
 
+    func generateRawResponse(prompt: String) async throws -> String {
+        try await sendChatCompletion(prompt)
+    }
+
     // MARK: - HTTP
 
     private func sendChatCompletion(_ content: String) async throws -> String {

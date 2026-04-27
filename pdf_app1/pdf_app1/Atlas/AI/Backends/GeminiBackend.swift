@@ -89,6 +89,10 @@ final class GeminiBackend: AtlasModel, @unchecked Sendable {
         return (try? JSONDecoder().decode([RawMergeProposal].self, from: data)) ?? []
     }
 
+    func generateRawResponse(prompt: String) async throws -> String {
+        try await generateContent(prompt)
+    }
+
     // MARK: - HTTP
 
     private func generateContent(_ content: String) async throws -> String {
