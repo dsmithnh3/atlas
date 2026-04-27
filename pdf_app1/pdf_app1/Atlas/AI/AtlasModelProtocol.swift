@@ -85,6 +85,8 @@ protocol AtlasModel: Sendable {
         documentAConcepts: [(label: String, summary: String?)],
         documentBConcepts: [(label: String, summary: String?)]
     ) async throws -> [RawMergeProposal]
+
+    func generateRawResponse(prompt: String) async throws -> String
 }
 
 extension AtlasModel {
@@ -92,9 +94,54 @@ extension AtlasModel {
         documentAConcepts: [(label: String, summary: String?)],
         documentBConcepts: [(label: String, summary: String?)]
     ) async throws -> [RawMergeProposal] {
-        // Default: no LLM-based merges — backends override when supported
         return []
     }
+
+    func generateRawResponse(prompt: String) async throws -> String {
+        throw AIError.modelUnavailable("Raw generation not supported by \(displayName)")
+    }
+}
+
+// MARK: - Deep Extraction Intermediate Types
+
+struct RawFact: Codable {
+    let claim: String
+    let textSpan: String
+    let type: String
+    let confidence: Double?
+}
+
+struct RawFactExtractionResponse: Codable {
+    let facts: [RawFact]
+}
+
+struct DeepConceptCluster: Codable {
+    let label: String
+    let type: String
+    let summary: String?
+    let level: String
+    let factIndices: [Int]
+    let entities: [DeepEntityCluster]?
+}
+
+struct DeepEntityCluster: Codable {
+    let label: String
+    let type: String
+    let summary: String?
+    let parentLabel: String
+    let factIndices: [Int]
+}
+
+struct DeepClusterResponse: Codable {
+    let concepts: [DeepConceptCluster]
+}
+
+// MARK: - Text Chunk (for deep pipeline)
+
+struct TextChunk {
+    let text: String
+    let pageRange: Range<Int>
+    let documentURL: URL
 }
 
 // MARK: - AI Backend Type
