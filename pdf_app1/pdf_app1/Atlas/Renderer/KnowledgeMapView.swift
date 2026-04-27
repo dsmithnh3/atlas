@@ -36,7 +36,7 @@ struct KnowledgeMapView: View {
     @State private var cachedZoomLevel: SemanticZoomLevel?
 
     // Callback to navigate PDF (set by parent)
-    var onNavigateToPage: ((Int, CGRect?) -> Void)?
+    var onNavigateToPage: ((Int, CGRect?, String?) -> Void)?
     // Active node from bidirectional sync (set by parent)
     var activeNodeID: UUID?
 
@@ -315,7 +315,7 @@ struct KnowledgeMapView: View {
                 ForEach(node.sourceAnchors.prefix(3)) { anchor in
                     Button(action: {
                         log.info("[MapView] Navigate to page \(anchor.pageIndex + 1)")
-                        onNavigateToPage?(anchor.pageIndex, anchor.boundingBox)
+                        onNavigateToPage?(anchor.pageIndex, anchor.boundingBox, anchor.textSnippet)
                     }) {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.right.doc")
