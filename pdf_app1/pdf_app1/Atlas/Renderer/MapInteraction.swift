@@ -106,6 +106,9 @@ class MapInteraction {
 
     func handleClick(at location: CGPoint, layout: ForceDirectedLayout, graph: KnowledgeGraph) {
         if let nodeID = hitTest(location: location, layout: layout, graph: graph) {
+            if graph.hasChildren(nodeID) {
+                graph.toggleExpansion(nodeID)
+            }
             selectedNodeID = (selectedNodeID == nodeID) ? nil : nodeID
         } else {
             selectedNodeID = nil

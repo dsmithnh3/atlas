@@ -156,6 +156,11 @@ struct KnowledgeMapView: View {
                     interaction.fitToContent(layout: layout, canvasSize: geometry.size)
                 }
             }
+            .onChange(of: graph.expansionGeneration) { _, _ in
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    recomputeLayout(canvasSize: geometry.size)
+                }
+            }
             .onAppear {
                 if graph.nodeCount > 0 {
                     recomputeLayout(canvasSize: geometry.size)
@@ -266,6 +271,22 @@ struct KnowledgeMapView: View {
                 Image(systemName: "location.fill")
             }
             .help("Recenter")
+
+            Divider().frame(width: 16)
+            Button(action: {
+                graph.expandAll()
+                if let geo = NSApplication.shared.keyWindow?.contentView?.bounds.size {
+                    recomputeLayout(canvasSize: geo)
+                }
+            }) { Image(systemName: "arrow.down.right.and.arrow.up.left") }
+                .help("Expand All")
+            Button(action: {
+                graph.collapseAll()
+                if let geo = NSApplication.shared.keyWindow?.contentView?.bounds.size {
+                    recomputeLayout(canvasSize: geo)
+                }
+            }) { Image(systemName: "arrow.up.left.and.arrow.down.right.circle") }
+                .help("Collapse All")
 
             if documentURL != nil && aiService.isConfigured {
                 Divider().frame(width: 16)

@@ -89,8 +89,7 @@ struct MapCanvasRenderer: View {
 
             let alpha: Double = (edge.sourceNodeID == selectedNodeID || edge.targetNodeID == selectedNodeID) ? 0.7 : 0.25
 
-            // Hide containsEntity edges (hierarchy is shown via grouping)
-            if edge.type == .containsEntity { continue }
+            if edge.type == .containsEntity || edge.type == .subtopicOf { continue }
 
             context.stroke(path, with: .color(edge.type.color.opacity(alpha)), lineWidth: 1.2)
 
@@ -207,6 +206,17 @@ struct MapCanvasRenderer: View {
                     context.fill(badgePath, with: .color(node.type.color.opacity(0.15)))
                     context.draw(context.resolve(badge), in: badgeRect)
                 }
+            }
+
+            // Expand/collapse chevron for nodes with children
+            if isConcept && viewScale >= 0.5 && graph.hasChildren(node.id) {
+                let chevronName = node.expansionState == .expanded ? "chevron.down" : "chevron.right"
+                let chevron = Text(Image(systemName: chevronName))
+                    .font(.system(size: max(8, 10 * viewScale), weight: .semibold))
+                    .foregroundColor(node.type.color.opacity(isDimmed ? 0.3 : 0.7))
+                let chevronSize: CGFloat = 12 * viewScale
+                let chevronRect = CGRect(x: rect.maxX - chevronSize - 3 * viewScale, y: rect.maxY - chevronSize - 3 * viewScale, width: chevronSize, height: chevronSize)
+                context.draw(context.resolve(chevron), in: chevronRect)
             }
 
             // Summary (when zoomed in enough and node has one)
