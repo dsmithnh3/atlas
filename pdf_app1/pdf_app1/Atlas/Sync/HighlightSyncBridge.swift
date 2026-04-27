@@ -94,6 +94,28 @@ class HighlightSyncBridge {
         _ = applyPersistentHighlights(document: document, graph: graph, documentURL: documentURL)
     }
 
+    // MARK: - Text-based passage finding
+
+    func findPassageRects(snippet: String, on page: PDFPage) -> [CGRect]? {
+        guard !snippet.isEmpty,
+              let pageText = page.string,
+              !pageText.isEmpty else { return nil }
+
+        let searchRange = pageText.range(of: snippet, options: [.caseInsensitive, .diacriticInsensitive])
+        guard let range = searchRange else { return nil }
+
+        let nsRange = NSRange(range, in: pageText)
+        guard let selection = page.selection(for: nsRange) else { return nil }
+
+        let lineSelections = selection.selectionsByLine()
+        let rects = lineSelections.compactMap { lineSel -> CGRect? in
+            let rect = lineSel.bounds(for: page)
+            return rect.isEmpty ? nil : rect
+        }
+
+        return rects.isEmpty ? nil : rects
+    }
+
     // MARK: - Source Pulse (temporary emphasis)
 
     /// Pulse an existing persistent highlight or create a temporary one
