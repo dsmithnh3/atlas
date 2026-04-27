@@ -269,6 +269,7 @@ class ExtractionPipeline {
             // Top-level items are always concept-level. Only nested items (inner loop) are entities.
             // This prevents orphan entities when the LLM returns a flat list.
             let effectiveLevel: NodeLevel = .concept
+            let effectiveHierarchyLevel = rawConcept.hierarchyLevel ?? 1
 
             // Check for existing concept node with same label
             let existingNode = graph.allNodes.first { $0.label.lowercased() == rawConcept.label.lowercased() }
@@ -279,6 +280,7 @@ class ExtractionPipeline {
                 if let summary = rawConcept.summary, existing.summary == nil {
                     existing.summary = summary
                 }
+                existing.hierarchyLevel = effectiveHierarchyLevel
                 graph.updateNode(existing)
                 conceptNodeID = existing.id
                 log.debug("[Step 5] Updated existing concept: \"\(existing.label)\"")
@@ -291,11 +293,31 @@ class ExtractionPipeline {
                     sourceAnchors: [conceptAnchor!],
                     confidence: rawConcept.confidence ?? 0.8,
                     level: effectiveLevel,
-                    highlightColorIndex: colorIndex
+                    highlightColorIndex: colorIndex,
+                    hierarchyLevel: effectiveHierarchyLevel
                 )
                 graph.addNode(node)
                 conceptNodeID = node.id
-                log.debug("[Step 5] Added concept: \"\(node.label)\" level=\(effectiveLevel.rawValue)")
+                log.debug("[Step 5] Added concept: \"\(node.label)\" hierarchy=\(effectiveHierarchyLevel)")
+            }
+
+            // Create subtopicOf edge if parent theme specified
+            if let parentLabel = rawConcept.subtopicOf,
+               let parentNode = graph.allNodes.first(where: { $0.label.lowercased() == parentLabel.lowercased() }) {
+                let alreadyLinked = graph.allEdges.contains {
+                    $0.sourceNodeID == conceptNodeID && $0.targetNodeID == parentNode.id && $0.type == .subtopicOf
+                }
+                if !alreadyLinked {
+                    let subtopicEdge = GraphEdge(
+                        sourceNodeID: conceptNodeID,
+                        targetNodeID: parentNode.id,
+                        type: .subtopicOf,
+                        confidence: 1.0,
+                        label: "is a subtopic of"
+                    )
+                    graph.addEdge(subtopicEdge)
+                    log.debug("[Step 5] Added subtopicOf edge: \"\(rawConcept.label)\" → \"\(parentLabel)\"")
+                }
             }
 
             // Process nested entities
@@ -390,7 +412,8 @@ class ExtractionPipeline {
                         sourceNodeID: sourceNode.id,
                         targetNodeID: targetNode.id,
                         type: edgeType,
-                        confidence: rawEdge.confidence ?? 0.7
+                        confidence: rawEdge.confidence ?? 0.7,
+                        label: rawEdge.linkingPhrase
                     )
                     graph.addEdge(edge)
                     added += 1
