@@ -118,6 +118,15 @@ class GraphStore {
         )
     }
 
+    // MARK: - Flush
+
+    /// Immediately executes any pending debounced save. Call on app termination.
+    func flushPendingSave() {
+        saveWorkItem?.perform()
+        saveWorkItem?.cancel()
+        saveWorkItem = nil
+    }
+
     // MARK: - Delete
 
     func deleteGraph(for documentURL: URL) {
