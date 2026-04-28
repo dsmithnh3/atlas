@@ -34,6 +34,8 @@ class ExtractionPipeline {
     func cancel() {
         log.info("[Pipeline] cancel() called, isProcessing=\(self.isProcessing)")
         processingTask?.cancel()
+        processingTask = nil
+        isProcessing = false
     }
 
     // MARK: - Progressive Extraction
