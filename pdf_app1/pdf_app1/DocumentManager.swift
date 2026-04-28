@@ -12,6 +12,9 @@ import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
 import Combine
+import os.log
+
+private let log = AtlasLogger.ui
 
 // MARK: - Document Model
 struct PDFDocumentItem: Identifiable, Equatable {
@@ -70,22 +73,33 @@ class DocumentManager: ObservableObject {
     // MARK: - Document Management
     @discardableResult
     func openDocument(_ url: URL, projectID: UUID? = nil) -> OpenResult {
-        guard canAddDocument else { return .tooManyTabs }
+        guard canAddDocument else {
+            log.warning("[DocManager] openDocument rejected: too many tabs (\(self.documents.count)/\(self.maxOpenDocuments))")
+            return .tooManyTabs
+        }
 
         // Check if already open
         if documents.contains(where: { $0.url == url }) {
+            log.info("[DocManager] openDocument: already open, selecting \(url.lastPathComponent)")
             selectDocument(url: url)
             return .alreadyOpen
         }
 
-        guard FileManager.default.isReadableFile(atPath: url.path) else { return .fileNotReadable }
-        guard let document = PDFKit.PDFDocument(url: url) else { return .invalidPDF }
+        guard FileManager.default.isReadableFile(atPath: url.path) else {
+            log.error("[DocManager] openDocument: file not readable at \(url.path)")
+            return .fileNotReadable
+        }
+        guard let document = PDFKit.PDFDocument(url: url) else {
+            log.error("[DocManager] openDocument: invalid PDF at \(url.lastPathComponent)")
+            return .invalidPDF
+        }
 
         let pdfDoc = PDFDocumentItem(url: url, document: document, projectID: projectID)
         documents.append(pdfDoc)
         selectedDocumentID = pdfDoc.id
         recentFilesManager?.addRecentFile(url)
 
+        log.info("[DocManager] openDocument: \(url.lastPathComponent), \(document.pageCount) pages, tab \(self.documents.count)/\(self.maxOpenDocuments)")
         return .success
     }
     
@@ -108,6 +122,7 @@ class DocumentManager: ObservableObject {
     }
     
     func closeDocument(_ document: PDFDocumentItem) {
+        log.info("[DocManager] closeDocument: \(document.url.lastPathComponent)")
         documents.removeAll { $0.id == document.id }
         
         // Update selection

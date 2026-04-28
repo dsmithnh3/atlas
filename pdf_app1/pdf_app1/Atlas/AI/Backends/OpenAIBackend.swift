@@ -6,6 +6,9 @@
 //
 
 import Foundation
+import os.log
+
+private let log = AtlasLogger.ai
 
 final class OpenAIBackend: AtlasModel, @unchecked Sendable {
     let displayName: String
@@ -32,24 +35,43 @@ final class OpenAIBackend: AtlasModel, @unchecked Sendable {
     // MARK: - AtlasModel
 
     func extractConcepts(from text: String, context: ExtractionContext) async throws -> [RawConcept] {
+        log.info("[OpenAI] extractConcepts: prompt \(text.count) chars")
         let prompt = PromptTemplates.conceptExtraction(text: text, context: context)
         let response = try await sendChatCompletion(prompt)
-        let parsed = try parseExtractionResponse(response)
-        return parsed.concepts
+        do {
+            let parsed = try parseExtractionResponse(response)
+            log.info("[OpenAI] Parsed \(parsed.concepts.count) concepts, \(parsed.edges.count) edges from response")
+            return parsed.concepts
+        } catch {
+            log.error("[OpenAI] Failed to parse extraction response: \(error)")
+            log.error("[OpenAI] Raw response (first 500 chars): \(String(response.prefix(500)))")
+            throw error
+        }
     }
 
     func proposeEdges(between concepts: [String], context: String) async throws -> [RawEdge] {
+        log.info("[OpenAI] proposeEdges for \(concepts.count) concepts")
         let prompt = PromptTemplates.edgeProposal(concepts: concepts, context: context)
         let response = try await sendChatCompletion(prompt)
-        return try parseEdgesResponse(response)
+        do {
+            let edges = try parseEdgesResponse(response)
+            log.info("[OpenAI] Parsed \(edges.count) edges")
+            return edges
+        } catch {
+            log.error("[OpenAI] Failed to parse edges response: \(error)")
+            log.error("[OpenAI] Raw response (first 500 chars): \(String(response.prefix(500)))")
+            throw error
+        }
     }
 
     func summarizeConcept(_ label: String, sourceText: String) async throws -> String {
+        log.info("[OpenAI] summarizeConcept: \(label)")
         let prompt = PromptTemplates.summarize(conceptLabel: label, sourceText: sourceText)
         return try await sendChatCompletion(prompt)
     }
 
     func answerQuestion(_ question: String, context: String) async throws -> AnswerWithCitations {
+        log.info("[OpenAI] answerQuestion: \(question.prefix(80))")
         let prompt = PromptTemplates.questionAnswer(question: question, context: context)
         let response = try await sendChatCompletion(prompt)
         return try parseAnswerResponse(response)
@@ -59,6 +81,7 @@ final class OpenAIBackend: AtlasModel, @unchecked Sendable {
         documentAConcepts: [(label: String, summary: String?)],
         documentBConcepts: [(label: String, summary: String?)]
     ) async throws -> [RawMergeProposal] {
+        log.info("[OpenAI] proposeMerges: \(documentAConcepts.count) vs \(documentBConcepts.count) concepts")
         let prompt = PromptTemplates.semanticMergeProposal(
             documentATitle: "Document A",
             documentAConcepts: documentAConcepts,
@@ -67,13 +90,20 @@ final class OpenAIBackend: AtlasModel, @unchecked Sendable {
         )
         let response = try await sendChatCompletion(prompt)
         let cleaned = extractJSON(from: response)
-        guard let data = cleaned.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([RawMergeProposal].self, from: data)) ?? []
+        guard let data = cleaned.data(using: .utf8) else {
+            log.warning("[OpenAI] proposeMerges: empty data after JSON extraction")
+            return []
+        }
+        let merges = (try? JSONDecoder().decode([RawMergeProposal].self, from: data)) ?? []
+        log.info("[OpenAI] proposeMerges: \(merges.count) merge proposals")
+        return merges
     }
 
     // MARK: - HTTP
 
     private func sendChatCompletion(_ content: String) async throws -> String {
+        log.info("[OpenAI] POST \(self.baseURL)/v1/chat/completions (prompt: \(content.count) chars, model: \(self.modelIdentifier))")
+
         let url = URL(string: "\(baseURL)/v1/chat/completions")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -96,11 +126,15 @@ final class OpenAIBackend: AtlasModel, @unchecked Sendable {
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
+            log.error("[OpenAI] Response is not HTTPURLResponse")
             throw AIError.invalidResponse
         }
 
+        log.info("[OpenAI] HTTP \(httpResponse.statusCode), \(data.count) bytes")
+
         guard httpResponse.statusCode == 200 else {
             let message = String(data: data, encoding: .utf8) ?? "Unknown error"
+            log.error("[OpenAI] HTTP error \(httpResponse.statusCode): \(String(message.prefix(300)))")
             throw AIError.httpError(statusCode: httpResponse.statusCode, message: message)
         }
 
@@ -108,9 +142,13 @@ final class OpenAIBackend: AtlasModel, @unchecked Sendable {
         guard let choices = json?["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
               let text = message["content"] as? String else {
+            let raw = String(data: data, encoding: .utf8) ?? "<binary>"
+            log.error("[OpenAI] Could not parse response structure. Raw (first 500): \(String(raw.prefix(500)))")
             throw AIError.invalidResponse
         }
 
+        log.info("[OpenAI] Got text response: \(text.count) chars")
+        log.debug("[OpenAI] Response preview: \(String(text.prefix(200)))")
         return text
     }
 

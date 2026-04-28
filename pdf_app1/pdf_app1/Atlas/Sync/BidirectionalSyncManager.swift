@@ -10,6 +10,9 @@
 import Foundation
 import PDFKit
 import Observation
+import os.log
+
+private let log = AtlasLogger.sync
 
 @Observable
 class BidirectionalSyncManager {
@@ -35,6 +38,7 @@ class BidirectionalSyncManager {
     }
 
     func setDocumentURL(_ url: URL?) {
+        log.info("[Sync] setDocumentURL: \(url?.lastPathComponent ?? "nil")")
         self.documentURL = url
     }
 
@@ -56,6 +60,9 @@ class BidirectionalSyncManager {
         let pageNodes = graph.nodes(forPage: currentPageIndex, in: documentURL)
 
         if let firstNode = pageNodes.first {
+            if activeNodeID != firstNode.id {
+                log.debug("[Sync] PDF→Map: page \(self.currentPageIndex + 1) → node \"\(firstNode.label)\"")
+            }
             activeNodeID = firstNode.id
         } else {
             // Try adjacent pages
@@ -73,7 +80,10 @@ class BidirectionalSyncManager {
 
     /// Called when the user clicks a node on the map
     func navigateToNode(_ nodeID: UUID) {
-        guard let graph, let node = graph.node(for: nodeID) else { return }
+        guard let graph, let node = graph.node(for: nodeID) else {
+            log.warning("[Sync] navigateToNode: node \(nodeID) not found in graph")
+            return
+        }
 
         // Find the best source anchor for the current document
         let anchor: SourceAnchor?
@@ -84,8 +94,12 @@ class BidirectionalSyncManager {
             anchor = node.sourceAnchors.first
         }
 
-        guard let sourceAnchor = anchor else { return }
+        guard let sourceAnchor = anchor else {
+            log.warning("[Sync] navigateToNode: no source anchor for \"\(node.label)\"")
+            return
+        }
 
+        log.info("[Sync] Map→PDF: node \"\(node.label)\" → page \(sourceAnchor.pageIndex + 1)")
         pendingNavigationAnchor = sourceAnchor
         navigateToPDFPage?(sourceAnchor.pageIndex, sourceAnchor.boundingBox)
 

@@ -9,6 +9,9 @@ import Foundation
 import Security
 import CryptoKit
 import Observation
+import os.log
+
+private let log = AtlasLogger.ai
 
 // MARK: - AI Service Manager
 
@@ -33,19 +36,30 @@ class AIServiceManager {
 
     func createBackend() -> (any AtlasModel)? {
         let apiKey = getAPIKey(for: selectedBackendType) ?? ""
+        log.info("[AIService] createBackend: type=\(self.selectedBackendType.rawValue), model=\(self.selectedModel), hasKey=\(!apiKey.isEmpty)")
 
         switch selectedBackendType {
         case .claude:
-            guard !apiKey.isEmpty else { return nil }
+            guard !apiKey.isEmpty else {
+                log.warning("[AIService] No API key for Claude")
+                return nil
+            }
             return ClaudeBackend(apiKey: apiKey, model: selectedModel)
         case .openai:
-            guard !apiKey.isEmpty else { return nil }
+            guard !apiKey.isEmpty else {
+                log.warning("[AIService] No API key for OpenAI")
+                return nil
+            }
             return OpenAIBackend(apiKey: apiKey, model: selectedModel)
         case .gemini:
-            guard !apiKey.isEmpty else { return nil }
+            guard !apiKey.isEmpty else {
+                log.warning("[AIService] No API key for Gemini")
+                return nil
+            }
             return GeminiBackend(apiKey: apiKey, model: selectedModel)
         case .ollama:
             let baseURL = UserDefaults.standard.string(forKey: "atlas.ollama.baseURL") ?? "http://localhost:11434"
+            log.info("[AIService] Using Ollama at \(baseURL)")
             return OpenAIBackend(apiKey: "", model: selectedModel, baseURL: baseURL + "/v1", displayName: "Ollama")
         }
     }

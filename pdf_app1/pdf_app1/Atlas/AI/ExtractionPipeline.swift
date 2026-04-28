@@ -32,6 +32,7 @@ class ExtractionPipeline {
     private let batchSize = 5
 
     func cancel() {
+        log.info("[Pipeline] cancel() called, isProcessing=\(self.isProcessing)")
         processingTask?.cancel()
     }
 

@@ -6,6 +6,9 @@
 //
 
 import Foundation
+import os.log
+
+private let log = AtlasLogger.graph
 
 // MARK: - Merge Proposal
 
@@ -61,6 +64,7 @@ class GraphMergeEngine {
         newDocumentGraph: KnowledgeGraph,
         projectGraph: KnowledgeGraph
     ) -> [MergeProposal] {
+        log.info("[Merge] findMergeProposals: \(newDocumentGraph.nodeCount) new nodes vs \(projectGraph.nodeCount) existing")
         var proposals: [MergeProposal] = []
 
         for newNode in newDocumentGraph.allNodes {
@@ -72,6 +76,7 @@ class GraphMergeEngine {
 
                 let similarity = computeSimilarity(newNode.label, existingNode.label)
                 if similarity > 0.7 {
+                    log.debug("[Merge] Proposal: \"\(newNode.label)\" ↔ \"\(existingNode.label)\" (similarity: \(String(format: "%.0f", similarity * 100))%)")
                     proposals.append(MergeProposal(
                         sourceNode: newNode,
                         targetNode: existingNode,
@@ -82,6 +87,7 @@ class GraphMergeEngine {
             }
         }
 
+        log.info("[Merge] Found \(proposals.count) merge proposals")
         return proposals.sorted { $0.similarity > $1.similarity }
     }
 
@@ -162,7 +168,11 @@ class GraphMergeEngine {
         in graph: KnowledgeGraph
     ) {
         guard var targetNode = graph.node(for: targetNodeID),
-              let sourceNode = graph.node(for: sourceNodeID) else { return }
+              let sourceNode = graph.node(for: sourceNodeID) else {
+            log.warning("[Merge] executeMerge: source or target node not found")
+            return
+        }
+        log.info("[Merge] Executing merge: \"\(sourceNode.label)\" → \"\(targetNode.label)\"")
 
         // Merge source anchors
         targetNode.sourceAnchors.append(contentsOf: sourceNode.sourceAnchors)

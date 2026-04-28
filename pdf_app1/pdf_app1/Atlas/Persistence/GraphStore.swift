@@ -8,6 +8,9 @@
 
 import Foundation
 import CryptoKit
+import os.log
+
+private let log = AtlasLogger.graph
 
 class GraphStore {
     static let shared = GraphStore()
@@ -44,22 +47,27 @@ class GraphStore {
             let data = try graph.encode()
             let fileURL = graphFileURL(for: documentURL)
             try data.write(to: fileURL, options: .atomic)
+            log.info("[GraphStore] Saved graph for \(documentURL.lastPathComponent): \(graph.nodeCount) nodes, \(graph.edgeCount) edges (\(data.count) bytes)")
         } catch {
-            print("GraphStore: Failed to save graph for \(documentURL.lastPathComponent): \(error)")
+            log.error("[GraphStore] Failed to save graph for \(documentURL.lastPathComponent): \(error)")
         }
     }
 
     func load(for documentURL: URL) -> KnowledgeGraph? {
         let fileURL = graphFileURL(for: documentURL)
-        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            log.info("[GraphStore] No saved graph for \(documentURL.lastPathComponent)")
+            return nil
+        }
 
         do {
             let data = try Data(contentsOf: fileURL)
             let graph = KnowledgeGraph()
             try graph.decode(from: data)
+            log.info("[GraphStore] Loaded graph for \(documentURL.lastPathComponent): \(graph.nodeCount) nodes, \(graph.edgeCount) edges")
             return graph
         } catch {
-            print("GraphStore: Failed to load graph for \(documentURL.lastPathComponent): \(error)")
+            log.error("[GraphStore] Failed to load graph for \(documentURL.lastPathComponent): \(error)")
             return nil
         }
     }
@@ -71,22 +79,27 @@ class GraphStore {
             let data = try graph.encode()
             let fileURL = projectGraphFileURL(for: projectID)
             try data.write(to: fileURL, options: .atomic)
+            log.info("[GraphStore] Saved project graph \(projectID.uuidString.prefix(8)): \(graph.nodeCount) nodes, \(graph.edgeCount) edges (\(data.count) bytes)")
         } catch {
-            print("GraphStore: Failed to save project graph \(projectID): \(error)")
+            log.error("[GraphStore] Failed to save project graph \(projectID): \(error)")
         }
     }
 
     func loadProjectGraph(projectID: UUID) -> KnowledgeGraph? {
         let fileURL = projectGraphFileURL(for: projectID)
-        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            log.info("[GraphStore] No saved project graph for \(projectID.uuidString.prefix(8))")
+            return nil
+        }
 
         do {
             let data = try Data(contentsOf: fileURL)
             let graph = KnowledgeGraph()
             try graph.decode(from: data)
+            log.info("[GraphStore] Loaded project graph \(projectID.uuidString.prefix(8)): \(graph.nodeCount) nodes, \(graph.edgeCount) edges")
             return graph
         } catch {
-            print("GraphStore: Failed to load project graph \(projectID): \(error)")
+            log.error("[GraphStore] Failed to load project graph \(projectID): \(error)")
             return nil
         }
     }
