@@ -1,6 +1,6 @@
 # Atlas PDF Viewer - Current Status
 
-**Last updated:** 2026-04-28
+**Last updated:** 2026-04-29
 
 ## Quick Orientation
 
@@ -11,33 +11,40 @@ Key entry points:
 - `PDFViewerView.swift` — PDF viewer (~1800 lines, largest file)
 - `Atlas/` directory — knowledge map system (extraction pipeline, graph, renderer)
 
-## What Was Just Done (2026-04-28)
+## Recent Work (newest first)
 
-Fixed two knowledge map interaction bugs (GitHub #15, #18):
+### 2026-04-28 — Map interaction fixes + session restore (PR #23)
+- **Recenter button** in map toolbar — fits all nodes into viewport
+- **Persisted graph loading** — graphs saved to disk now load automatically when reopening a document
+- **Fit viewport on zoom level change** — switching semantic zoom levels auto-fits content
+- **Pan/drag fix** — node drag used cumulative translation causing runaway movement; fixed to use `startPos + delta`
+- **Split pane resize fix** — debounced resize-triggered work to eliminate window/split-pane lag
+- **Scroll-wheel zoom** — new `ScrollWheelOverlay.swift` captures AppKit scroll events, zoom centers on cursor position
+- **Session restore** — split pane state and open documents restored across launches
+- **Guard layout during drag** — `fitToContent` and `recomputeLayout` gated by `isDraggingNode` flag
+- **Structured logging** — `AtlasLogger` with `os_log` categories: pipeline, ai, graph, text, sync, ui
+- **Pipeline fixes** — cancel fully resets state, `isProcessing` lifecycle moved to `processFullDocument`, extraction cancellation sets document state to `.unprocessed`
+- **Project graph persistence** — `projectID` threaded through extraction; saves to project graph when applicable
+- **`GraphStore.flushPendingSave`** — called on app termination to avoid data loss
 
-### Issue #15: Node drag fixes
-- **Root cause:** `handleDragChanged` applied cumulative translation on top of already-moved node position, causing runaway movement. Also, `selectedNodeID` set during drag could trigger layout recomputation which calls `fitToContent`, resetting the viewport.
-- **Fixes:** Store initial node position on drag start, compute new position from `startPos + delta`. Guard `fitToContent` and `recomputeLayout` with `isDraggingNode` flag. Made `isDraggingNode` publicly readable.
+### 2026-04-27 — Viewer UX + Extraction UX (4 fixes)
+- **Alert system** — `CompactAlertView` overlay wired into `MultiDocumentView`. `AppError` has `.severity` (`.modal` vs `.toast`). `AlertManager.routeError()` dispatches accordingly.
+- **Recent files UX** — Inaccessible files shown dimmed with warning icon instead of silently removed. Right-click context menu. Stale launch counter auto-removes after 3 launches. `DocumentManager.openDocument()` returns `OpenResult` enum.
+- **Progress + cancel** — `ExtractionPipeline` has `progress` property, `cancel()` via Task cancellation, page counter. Map view shows progress bar + cancel button.
+- **OCR fallback** — `TextExtractor` has Vision OCR (`ocrExtractPages`) at 300 DPI. Auto-runs when no embedded text found. Scanned PDF banner with "Run OCR" button.
 
-### Issue #18: Scroll wheel zoom
-- **New file:** `ScrollWheelOverlay.swift` — `NSViewRepresentable` wrapper that captures `scrollWheel:` events from AppKit and forwards delta+location to `MapInteraction.handleScrollWheel()`.
-- **Zoom-toward-cursor:** `handleScrollWheel` adjusts both `viewScale` and `viewOffset` so the zoom centers on the cursor position.
-
-## What Was Done (2026-04-27)
-
-Implemented 4 UX fixes from `docs/UX_FIXES_PLAN.md`. All compile cleanly.
-
-### PR1: Viewer UX
-- **Alert system wired up** — `CompactAlertView` overlay added to `MultiDocumentView` (was dead code before). Alert goes after command palette overlay and dismisses palette on appear. `AppError` now has `.severity` (`.modal` vs `.toast`). `AlertManager.routeError()` dispatches accordingly.
-- **Recent files UX** — Inaccessible files no longer silently removed. They show dimmed with warning icon. Tap failure shows modal alert with "Remove from Recents". Right-click context menu on all items. Stale launch counter auto-removes after 3 launches. `DocumentManager.openDocument()` returns `OpenResult` enum instead of `Bool`.
-
-### PR2: Extraction UX
-- **Progress + cancel** — `ExtractionPipeline` now has `progress` property, `cancel()` via `Task` cancellation, page counter. `KnowledgeMapView` shows linear progress bar + cancel button in a material card.
-- **OCR fallback** — `TextExtractor` has Vision OCR (`ocrExtractPages`). Auto-runs when no embedded text found. One page at a time for memory safety. Low-density text (<10 chars/page) sets `scannedPDFDetected` flag; banner shown in map view with "Run OCR" button.
+### Earlier milestones
+- Cross-document merge engine with LLM-powered semantic merge proposals
+- Concept-entity hierarchy rendering in canvas
+- Persistent color-coded PDF highlights synced from knowledge graph
+- Per-document and batch extraction triggers in project files panel
+- Debounced resize to fix window and split pane lag
+- Bounding box pulse highlight on page navigation
+- Text-selection-based highlighting (replaced rectangle drag)
+- Multi-document tabs, comparison mode, project explorer
+- Full AI extraction pipeline with 4 backends
 
 ## What's Next
-
-See `docs/UX_FIXES_PLAN.md` verification checklist (bottom of file) — those scenarios need manual testing in the running app.
 
 ### Remaining work from `docs/TODO.md` (not yet started):
 - **Annotation move/resize** — handles/drag UX (TODO item 13)
@@ -48,29 +55,8 @@ See `docs/UX_FIXES_PLAN.md` verification checklist (bottom of file) — those sc
 - **Xcode test target** — test files exist in `pdf_app1Tests/` but aren't wired into a scheme (TODO item 16)
 - **Project-level search** — V2 of Projects feature, multi-PDF search (TODO item 18)
 
-### Priority order (user's judgment):
-1. Manual testing of the 4 UX fixes just implemented
+### Priority order:
+1. Manual testing of recent UX fixes
 2. Annotation move/resize
 3. Dark mode tuning
 4. Project-level search (V2)
-
-## Files Modified This Session
-
-| File | What changed |
-|------|-------------|
-| `MapInteraction.swift` | Fixed node drag position calc, added `handleScrollWheel`, guarded `fitToContent` during drag |
-| `KnowledgeMapView.swift` | Added `ScrollWheelOverlay`, guarded `recomputeLayout` during drag |
-| `ScrollWheelOverlay.swift` | **New** — NSViewRepresentable for scroll wheel capture |
-
-## Files Modified Previous Session
-
-| File | What changed |
-|------|-------------|
-| `AppError.swift` | Added `severity`, `ErrorSeverity` enum, `routeError()` on AlertManager |
-| `MultiDocumentView.swift` | Alert overlay, recent files dimming/context menu/OpenResult handling |
-| `PDFViewerView.swift` | Added `@EnvironmentObject var alertManager` |
-| `DocumentManager.swift` | `OpenResult` enum, `openDocument` returns it |
-| `RecentFilesManager.swift` | `inaccessibleFiles` as Set, stale launch counter, no auto-remove |
-| `ExtractionPipeline.swift` | `progress`, `cancel()`, `scannedPDFDetected`, Task-based processing, OCR fallback path |
-| `TextExtractor.swift` | `import Vision`, `ocrExtractPages()` with 300 DPI rendering |
-| `KnowledgeMapView.swift` | Progress bar + cancel button, scanned PDF banner, non-async startExtraction |

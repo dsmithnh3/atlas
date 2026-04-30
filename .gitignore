@@ -1,6 +1,5 @@
 # Xcode
-*.xcodeproj/xcuserdata/
-*.xcodeproj/project.xcworkspace/xcuserdata/
+**/xcuserdata/
 DerivedData/
 *.hmap
 *.ipa
