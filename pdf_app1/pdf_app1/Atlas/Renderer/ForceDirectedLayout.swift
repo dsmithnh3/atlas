@@ -129,21 +129,11 @@ class ForceDirectedLayout {
         var forces: [UUID: (dx: Double, dy: Double)] = [:]
         for node in nodes { forces[node.id] = (0, 0) }
 
-        // Repulsive forces
-        for i in 0..<nodes.count {
-            for j in (i + 1)..<nodes.count {
-                guard let posA = positions[nodes[i].id], let posB = positions[nodes[j].id] else { continue }
-                let dx = posA.x - posB.x
-                let dy = posA.y - posB.y
-                let dist = max(sqrt(dx * dx + dy * dy), 1)
-                let force = repulsionConstant / (dist * dist)
-                let fx = (dx / dist) * force
-                let fy = (dy / dist) * force
-                forces[nodes[i].id]?.dx += fx
-                forces[nodes[i].id]?.dy += fy
-                forces[nodes[j].id]?.dx -= fx
-                forces[nodes[j].id]?.dy -= fy
-            }
+        // Repulsive forces — exact pairwise for small graphs, Barnes-Hut otherwise
+        let repulsion = repulsionForces(nodes: nodes)
+        for node in nodes {
+            forces[node.id]?.dx += repulsion[node.id]?.dx ?? 0
+            forces[node.id]?.dy += repulsion[node.id]?.dy ?? 0
         }
 
         // Attractive forces along edges
@@ -202,6 +192,52 @@ class ForceDirectedLayout {
             positions[node.id] = pos
         }
         return totalMovement
+    }
+
+    /// Pick exact O(n²) pairwise repulsion for small graphs, or Barnes-Hut quadtree above
+    /// `AppConstants.barnesHutThreshold`.
+    private func repulsionForces(nodes: [ConceptNode]) -> [UUID: (dx: Double, dy: Double)] {
+        if nodes.count < AppConstants.barnesHutThreshold {
+            return exactRepulsion(nodes: nodes)
+        }
+        let bodies = nodes.compactMap { node -> (id: UUID, position: CGPoint)? in
+            guard let p = positions[node.id] else { return nil }
+            return (node.id, CGPoint(x: p.x, y: p.y))
+        }
+        let tree = BarnesHutQuadTree(bodies: bodies)
+        var out: [UUID: (dx: Double, dy: Double)] = [:]
+        out.reserveCapacity(bodies.count)
+        for body in bodies {
+            let f = tree.force(
+                on: body.id,
+                at: body.position,
+                theta: AppConstants.barnesHutTheta,
+                repulsionConstant: repulsionConstant
+            )
+            out[body.id] = (Double(f.dx), Double(f.dy))
+        }
+        return out
+    }
+
+    private func exactRepulsion(nodes: [ConceptNode]) -> [UUID: (dx: Double, dy: Double)] {
+        var out: [UUID: (dx: Double, dy: Double)] = [:]
+        for node in nodes { out[node.id] = (0, 0) }
+        for i in 0..<nodes.count {
+            for j in (i + 1)..<nodes.count {
+                guard let posA = positions[nodes[i].id], let posB = positions[nodes[j].id] else { continue }
+                let dx = posA.x - posB.x
+                let dy = posA.y - posB.y
+                let dist = max(sqrt(dx * dx + dy * dy), 1)
+                let force = repulsionConstant / (dist * dist)
+                let fx = (dx / dist) * force
+                let fy = (dy / dist) * force
+                out[nodes[i].id]?.dx += fx
+                out[nodes[i].id]?.dy += fy
+                out[nodes[j].id]?.dx -= fx
+                out[nodes[j].id]?.dy -= fy
+            }
+        }
+        return out
     }
 
     /// Push apart any nodes that are still overlapping after layout
