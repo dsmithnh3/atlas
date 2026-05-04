@@ -93,6 +93,10 @@ struct AppConstants {
     static let mapDensityThreshold: Int = 200
     /// Force-directed layout iteration limit
     static let layoutMaxIterations: Int = 500
+    /// Node count below which the exact O(n²) repulsion loop is used; at or above, switch to Barnes-Hut
+    static let barnesHutThreshold: Int = 100
+    /// Barnes-Hut accuracy parameter. Lower = closer to exact (slower), higher = more approximate (faster)
+    static let barnesHutTheta: Double = 0.7
 
     // MARK: - UserDefaults Keys
     /// UserDefaults key for recent files bookmarks
