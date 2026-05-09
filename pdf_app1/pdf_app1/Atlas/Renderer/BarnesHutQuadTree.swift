@@ -9,7 +9,12 @@
 import Foundation
 import CoreGraphics
 
-private final class QuadTreeNode {
+// `nonisolated` to opt out of the project-wide MainActor default
+// (SWIFT_DEFAULT_ACTOR_ISOLATION). QuadTreeNode is a plain data
+// structure; without this, recursive deallocation of [QuadTreeNode]?
+// crashes the Swift Concurrency runtime on macOS 26.3 (isolated-deinit
+// teardown double-free).
+private final nonisolated class QuadTreeNode {
     var bounds: CGRect
     var centerOfMass: CGPoint = .zero
     var totalMass: Double = 0
