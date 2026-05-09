@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 //
 // Standalone test runner for Novak extraction model + parsing changes.
-// Run: swift pdf_app1/pdf_app1Tests/RunNovakTests.swift
+// Run: swift pdf_app1/scripts/RunNovakTests.swift
 //
 // Tests Codable round-trips, backward compat, JSONRepair, prompt structure,
 // and realistic LLM response parsing for Novak-style concept map extraction.
