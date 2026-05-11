@@ -142,8 +142,13 @@ struct GraphEdge: Identifiable, Codable, Hashable {
 }
 
 // MARK: - Knowledge Graph
+// `nonisolated` to opt out of the project-wide MainActor default
+// (SWIFT_DEFAULT_ACTOR_ISOLATION). KnowledgeGraph is a pure data
+// model (no AppKit, no @Published, consumed via @Observable / @State);
+// without this, MainActor-isolated deinit double-frees task-local
+// storage on macOS 26.3. Same pattern as QuadTreeNode (commit c8cad91).
 @Observable
-class KnowledgeGraph {
+nonisolated class KnowledgeGraph {
     var nodes: [UUID: ConceptNode] = [:]
     var edges: [UUID: GraphEdge] = [:]
     var documentProcessingState: [URL: ProcessingState] = [:]
