@@ -21,7 +21,9 @@ Durable "someday/maybe" items — distinct from session-level Unresolved (which 
   - .document zoom = picked-node not summary → ConceptNode gains isDocumentSummary; ExtractionPipeline.appendDocumentSummary helper called from both fast and deep pipelines; DensityManager prefers summary node (uncommitted, build green, tests blocked by testmanagerd hang)
 -->
 
-## Active / Next (2026-05-09)
+## Active / Next
+
+(no `[active]` items as of 2026-05-11 — Pattern A residual closed, autoRemoveStaleFiles bug fixed)
 
 <!-- Pattern A resolved 2026-05-11 via structural fix: removed `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` from project.pbxproj (4 occurrences). Only fallout was 2 PDFKit-touching methods in HighlightSyncBridge needing explicit @MainActor. Full suite: 58/6-incomplete → 64/0-incomplete. Side-effect: exposed and fixed a long-standing ProjectsManager save/load race (CombineLatest3 never emitted without projectsSortMode change; load() overwrote in-memory state when file missing). -->
 - Optionally swap `summarizeConcept` for `generateRawResponse` + custom doc-summary prompt if "Summarize the concept '<filename>'" wording produces awkward output once a real run happens. Low priority; only if observed.
