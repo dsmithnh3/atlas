@@ -63,7 +63,7 @@ Durable "someday/maybe" items — distinct from session-level Unresolved (which 
 - Test state synchronization for updateNSView (TODO #8).
 
 ## Tests / CI
-- Wire tests into Xcode: create Unit Test target, add `pdf_app1Tests/*.swift` sources (TODO #16; Final Review). **Priority:** high — test files exist but can't run via `xcodebuild test` until scheme is configured.
+<!-- Verified 2026-05-11: tests are wired — scheme `pdf_app1` has a TestAction with `pdf_app1Tests.xctest` as a TestableReference; `xcodebuild test` runs the full suite. Stale CLAUDE.md note removed. -->
 - Set up CI/CD with test automation (TODO #16).
 - Aim for >80% code coverage (TODO #16).
 
