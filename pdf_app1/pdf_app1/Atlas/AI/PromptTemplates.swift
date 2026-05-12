@@ -21,61 +21,69 @@ enum PromptTemplates {
             : "\nDocument outline hints: \(context.outlineHints.joined(separator: " > "))"
 
         return """
-        You are a knowledge extraction system. Analyze the following text from "\(context.documentTitle)" (pages \(context.pageRange.lowerBound + 1)-\(context.pageRange.upperBound)) and extract a two-level hierarchy of knowledge.
+        You are a concept map extraction system following Novak's methodology. Analyze the following text from "\(context.documentTitle)" (pages \(context.pageRange.lowerBound + 1)-\(context.pageRange.upperBound)) and extract a hierarchical concept map.
         \(outlineHints)
 
         Already extracted concepts (do not duplicate): \(existingList)
 
+        ## Core Principle
+
+        A concept map is a network of PROPOSITIONS. Each proposition is a triple: Concept A —[linking phrase]→ Concept B that reads as a meaningful sentence. For example: "Glycolysis" —[produces]→ "Pyruvate" reads as "Glycolysis produces Pyruvate."
+
         ## Extraction Rules
 
-        1. First, identify 3-8 high-level CONCEPTS — these are the major themes, topics, or ideas discussed in the text. Think of these as the chapter headings of understanding.
+        1. Identify 5-6 TOP THEMES (hierarchyLevel 0) — these are the broadest ideas or processes in the text. Label them as short readable noun phrases (2-6 words).
 
-        2. For each concept, identify 1-5 ENTITIES — these are specific things within that concept: definitions, techniques, people, formulas, examples, datasets, or results that belong under that concept.
+        2. For each theme, identify 3-8 SUB-CONCEPTS (hierarchyLevel 1+) — these are more specific ideas that fall under a theme. Each sub-concept must specify its parent theme via subtopicOf.
 
-        3. Every concept and entity MUST have a textSpan that is an EXACT verbatim quote from the text — copy it character-for-character. If you cannot find an exact quote, do not include that item.
+        3. Every concept (theme or sub-concept) MUST have a textSpan that is an EXACT verbatim quote from the text. If you cannot find an exact quote, do not include that concept.
 
-        4. Do not invent items not present in the text. Prefer specific, meaningful items over vague ones.
+        4. Propose edges between concepts. Each edge MUST have a linkingPhrase — a short verb phrase (1-4 words MAX) that makes "sourceLabel [linkingPhrase] targetLabel" read as a grammatical sentence. Good: "produces", "requires", "inhibits", "is a type of". Bad: "is far less efficient than aerobic respiration in producing" (too long — rephrase as "yields less than").
 
-        5. Also propose edges (relationships) between concepts and between entities of different concepts. Do NOT propose edges between a concept and its own entities — those containment relationships are implicit.
+        5. Do not invent concepts not present in the text. Prefer specific, concrete concepts over vague abstractions.
+
+        6. Concept labels should be readable noun phrases, NOT full sentences. Good: "ATP production", "Krebs cycle enzymes". Bad: "ATP is produced by oxidative phosphorylation".
 
         ## JSON Schema
 
-        Return ONLY a JSON object with this exact structure:
+        EVERY field below is REQUIRED. Do not omit any field. Return ONLY a JSON object with this exact structure:
         {
           "concepts": [
             {
-              "label": "Short Name (2-5 words)",
-              "level": "concept",
-              "type": "concept|theorem|method|claim",
-              "summary": "One sentence description",
-              "textSpan": "exact verbatim quote from text where this topic is discussed",
+              "label": "Readable Noun Phrase (2-6 words)",
+              "type": "concept",
+              "summary": "One sentence explaining this concept",
+              "textSpan": "exact verbatim quote from text",
               "confidence": 0.95,
-              "entities": [
-                {
-                  "label": "Specific Entity Name",
-                  "level": "entity",
-                  "type": "definition|example|person|dataset|result|equation",
-                  "parentLabel": "Short Name (2-5 words)",
-                  "summary": "One sentence description",
-                  "textSpan": "exact verbatim quote from text",
-                  "confidence": 0.9
-                }
-              ]
+              "hierarchyLevel": 0,
+              "subtopicOf": null
+            },
+            {
+              "label": "More Specific Sub-concept",
+              "type": "concept",
+              "summary": "One sentence explanation",
+              "textSpan": "exact verbatim quote from text",
+              "confidence": 0.9,
+              "hierarchyLevel": 1,
+              "subtopicOf": "Parent Theme Label"
             }
           ],
           "edges": [
             {
-              "sourceLabel": "...",
-              "targetLabel": "...",
-              "type": "dependsOn|contradicts|exampleOf|defines|extends|cites|sameTopic|partOf|uses",
-              "confidence": 0.85
+              "sourceLabel": "Concept A",
+              "targetLabel": "Concept B",
+              "type": "dependsOn",
+              "confidence": 0.85,
+              "linkingPhrase": "requires"
             }
           ]
         }
 
-        Concept types: concept, theorem, method, claim
-        Entity types: definition, example, person, dataset, result, equation
+        REQUIRED concept fields: label, type, summary, textSpan, confidence, hierarchyLevel, subtopicOf
+        REQUIRED edge fields: sourceLabel, targetLabel, type, confidence, linkingPhrase
+        hierarchyLevel: 0 = top theme, 1 = direct sub-concept, 2 = sub-sub-concept (rarely needed)
         Edge types: dependsOn, contradicts, exampleOf, defines, extends, cites, sameTopic, partOf, uses
+        linkingPhrase: 1-4 word verb phrase making "A [phrase] B" a readable sentence
 
         Return valid JSON only, no markdown formatting.
 
@@ -164,6 +172,122 @@ enum PromptTemplates {
         - partialOverlap: one is a subset or special case of the other
 
         Only propose matches you are confident about (confidence > 0.6). Return valid JSON only.
+        """
+    }
+
+    // MARK: - Deep Mode Pass 1: Fact Extraction
+
+    static func deepFactExtraction(text: String, documentTitle: String, pageRange: Range<Int>) -> String {
+        return """
+        You are a knowledge extraction system performing detailed fact extraction from "\(documentTitle)" (pages \(pageRange.lowerBound + 1)-\(pageRange.upperBound)).
+
+        Extract every distinct fact, claim, definition, observation, or result stated in the text. Each fact should be atomic — one idea per fact.
+
+        For each fact, provide an EXACT verbatim quote (textSpan) from the source text.
+
+        Return ONLY a JSON object:
+        {
+          "facts": [
+            {
+              "claim": "One-sentence statement of the fact",
+              "textSpan": "exact verbatim quote from text supporting this fact",
+              "type": "claim|definition|observation|example|result|method",
+              "confidence": 0.95
+            }
+          ]
+        }
+
+        Return valid JSON only, no markdown formatting.
+
+        TEXT:
+        \(text)
+        """
+    }
+
+    // MARK: - Deep Mode Pass 2: Clustering & Deduplication
+
+    static func deepClustering(facts: [RawFact], documentTitle: String) -> String {
+        let factsJSON = facts.enumerated().map { i, f in
+            "  {\n    \"index\": \(i),\n    \"claim\": \"\(f.claim.replacingOccurrences(of: "\"", with: "\\\""))\",\n    \"type\": \"\(f.type)\"\n  }"
+        }.joined(separator: ",\n")
+
+        return """
+        You are organizing extracted facts from "\(documentTitle)" into a hierarchical concept map.
+
+        Here are \(facts.count) facts extracted from the document (each has an index):
+        [\(factsJSON)]
+
+        ## Instructions
+
+        1. Group related facts into 3-12 high-level CONCEPTS (themes/topics). Each concept should represent a coherent theme.
+
+        2. For each concept, identify 1-5 ENTITIES (specific definitions, examples, techniques, people, results) that belong under it.
+
+        3. DEDUPLICATE: If multiple facts express the same idea (even with different wording), group them under the same concept. Use factIndices to reference which input facts belong to each concept/entity.
+
+        4. Every concept and entity must reference at least one fact via factIndices.
+
+        Return ONLY a JSON object:
+        {
+          "concepts": [
+            {
+              "label": "Short Name (2-5 words)",
+              "type": "concept|theorem|method|claim",
+              "summary": "One sentence description synthesizing the grouped facts",
+              "level": "concept",
+              "factIndices": [0, 3, 7],
+              "entities": [
+                {
+                  "label": "Specific Entity Name",
+                  "type": "definition|example|person|dataset|result|equation",
+                  "summary": "One sentence description",
+                  "parentLabel": "Short Name",
+                  "factIndices": [3]
+                }
+              ]
+            }
+          ]
+        }
+
+        Return valid JSON only, no markdown formatting.
+        """
+    }
+
+    // MARK: - Deep Mode Pass 3: Cross-Referencing
+
+    static func deepCrossReference(concepts: [(label: String, summary: String?)], documentTitle: String) -> String {
+        let conceptList = concepts.map { c in
+            if let s = c.summary { return "- \(c.label): \(s)" }
+            return "- \(c.label)"
+        }.joined(separator: "\n")
+
+        return """
+        You are building a knowledge map for "\(documentTitle)". Given these concepts, propose relationships between them.
+
+        Concepts:
+        \(conceptList)
+
+        ## Instructions
+
+        Propose edges between concepts. Consider:
+        - Hierarchical relationships (subtopicOf): one concept is a subtopic of another
+        - Dependency relationships (dependsOn): one concept requires understanding another
+        - Similarity (sameTopic): concepts that overlap significantly
+        - Other relationships: contradicts, extends, uses, defines, exampleOf, partOf
+
+        Edge types: dependsOn, contradicts, exampleOf, defines, extends, cites, sameTopic, partOf, uses, subtopicOf
+
+        Return ONLY a JSON array:
+        [
+          {
+            "sourceLabel": "...",
+            "targetLabel": "...",
+            "type": "subtopicOf|dependsOn|...",
+            "confidence": 0.9
+          }
+        ]
+
+        Only propose edges you are confident about. Return valid JSON only.
         """
     }
 

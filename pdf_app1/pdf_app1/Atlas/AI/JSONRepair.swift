@@ -92,6 +92,7 @@ enum JSONRepair {
             var inStr = false
             var esc = false
             var foundArray = false
+            var closedArray = false
             for i in afterConcepts.indices {
                 let ch = afterConcepts[i]
                 if esc { esc = false; continue }
@@ -101,7 +102,11 @@ enum JSONRepair {
                 if ch == "[" { foundArray = true; braceDepth += 1 }
                 else if ch == "]" {
                     braceDepth -= 1
-                    if foundArray && braceDepth == 0 { lastGoodEnd = afterConcepts.index(after: i); break }
+                    if foundArray && braceDepth == 0 {
+                        lastGoodEnd = afterConcepts.index(after: i)
+                        closedArray = true
+                        break
+                    }
                 } else if ch == "}" && braceDepth == 1 {
                     lastGoodEnd = afterConcepts.index(after: i)
                 }
@@ -109,7 +114,9 @@ enum JSONRepair {
 
             if lastGoodEnd > afterConcepts.startIndex {
                 let partial = String(json[json.startIndex..<lastGoodEnd])
-                let fixed = partial + "], \"edges\": []}"
+                let fixed = closedArray
+                    ? partial + ", \"edges\": []}"
+                    : partial + "], \"edges\": []}"
                 if (try? JSONSerialization.jsonObject(with: Data(fixed.utf8))) != nil {
                     log.info("JSON repair succeeded (truncated edges recovery)")
                     return fixed

@@ -10,7 +10,7 @@ Built entirely with Apple frameworks. No Electron, no web views, no external dep
 
 ## Features
 
-- **PDF Viewer** - Full-featured reader with text-selection highlights, area annotations, search, bookmarks, thumbnails, multi-tab, comparison mode, print, and undo/redo
+- **PDF Viewer** - Full-featured reader with markup tools (highlight / underline / strikethrough, area highlights, ink, shapes — rectangle / circle / line / arrow, sticky notes, move/resize), search, bookmarks, thumbnails, multi-tab, comparison mode, print, and undo/redo
 - **Knowledge Map** - AI extracts concepts from your PDFs in 5-page batches and renders them as a force-directed graph (Fruchterman-Reingold) with semantic zoom levels: document → chapter → concept → entity
 - **Bidirectional Sync** - Scroll the PDF and the active concept lights up on the map. Click a map node and the PDF jumps to the source passage with a color-matched pulse highlight
 - **Cross-Document Correlations** - Add multiple PDFs to a project. Atlas merges shared concepts across documents using fuzzy matching and optional LLM-powered semantic merge proposals
@@ -80,8 +80,13 @@ ollama pull llama3.1
 | Cmd+F | Search (context-aware: searches whichever pane has focus) |
 | Cmd+T | New tab / open file |
 | Cmd+W | Close tab |
+| Cmd+← / Cmd+→ | Previous / next page |
+| Cmd+↑ / Cmd+↓ | Scroll up / down |
+| Cmd+S / Cmd+Shift+S | Save / Save As |
+| Cmd+P | Print |
 | Cmd+Z / Cmd+Shift+Z | Undo / Redo |
 | Cmd+Shift+D | Comparison mode |
+| Cmd+Ctrl+F | Fullscreen |
 
 ## How It Works
 
@@ -117,6 +122,8 @@ pdf_app1/pdf_app1/
     Models/
       ConceptTypes.swift          ConceptType, EdgeType, ReadingState, PaneMode enums
       KnowledgeGraph.swift        Core graph: ConceptNode, GraphEdge, SourceAnchor
+    Annotations/
+      AnnotationGeometry.swift    Pure-value geometry for annotation move/resize (translate, resize, handle hit-test)
     Persistence/
       GraphStore.swift            Per-document/project JSON persistence (debounced saves)
       GraphMergeEngine.swift      Cross-document entity resolution + LLM merge proposals
@@ -124,7 +131,9 @@ pdf_app1/pdf_app1/
       AtlasModelProtocol.swift    AI backend protocol (4 operations)
       PromptTemplates.swift       All LLM prompts (extraction + merge)
       AIServiceManager.swift      Backend selection, Keychain keys, response caching
-      ExtractionPipeline.swift    Full pipeline: pages → concepts → graph, with progress + cancel
+      ExtractionPipeline.swift    Fast pipeline: pages → concepts → graph, with progress + cancel
+      DeepExtractionPipeline.swift  Deeper multi-pass extraction with richer relationships
+      ExtractionMode.swift        Fast vs deep extraction selector
       TextExtractor.swift         PDFKit text extraction + Vision OCR fallback
       LayoutAnalyzer.swift        Heuristic block classifier (heading/body/etc)
       JSONRepair.swift            LLM response cleanup (fence stripping, truncation repair)
@@ -137,6 +146,8 @@ pdf_app1/pdf_app1/
       KnowledgeMapView.swift      Map panel with extraction controls + progress
       MapCanvasRenderer.swift     SwiftUI Canvas graph renderer with LOD
       ForceDirectedLayout.swift   Fruchterman-Reingold with hierarchical grouping
+      BarnesHutQuadTree.swift     Quadtree-based O(n log n) repulsion approximation
+      NodeSizing.swift            Node radius / label sizing helpers
       MapInteraction.swift        Pan, zoom, click, drag, scroll-wheel zoom
       DensityManager.swift        Node collapse/expand by semantic zoom level
       ScrollWheelOverlay.swift    AppKit scroll-wheel capture for zoom-toward-cursor
@@ -155,6 +166,7 @@ pdf_app1/pdf_app1/
       MapToolbar.swift            Map pane toolbar (zoom, filter, recenter, export)
       MergeProposalView.swift     Accept/reject concept merge proposals (bulk accept)
       ProjectCorrelationSidebar.swift  Project sidebar with correlation stats
+      PDFToolbarBridge.swift      Observable state bridge: PDF viewer publishes toolbar state/actions for the sidebar to render
     Export/
       ExportManager.swift         Export to Obsidian, Markdown, JSON
 ```

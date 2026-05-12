@@ -84,6 +84,7 @@ enum EdgeType: String, Codable, CaseIterable, Hashable {
     case partOf
     case uses
     case containsEntity
+    case subtopicOf
 
     var displayName: String {
         switch self {
@@ -97,6 +98,7 @@ enum EdgeType: String, Codable, CaseIterable, Hashable {
         case .partOf: return "Part Of"
         case .uses: return "Uses"
         case .containsEntity: return "Contains"
+        case .subtopicOf: return "Subtopic Of"
         }
     }
 
@@ -112,6 +114,7 @@ enum EdgeType: String, Codable, CaseIterable, Hashable {
         case .partOf: return .indigo
         case .uses: return .mint
         case .containsEntity: return .secondary
+        case .subtopicOf: return .brown
         }
     }
 }

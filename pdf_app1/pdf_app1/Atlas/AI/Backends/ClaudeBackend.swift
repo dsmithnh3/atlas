@@ -93,6 +93,10 @@ final class ClaudeBackend: AtlasModel, @unchecked Sendable {
         return merges
     }
 
+    func generateRawResponse(prompt: String) async throws -> String {
+        try await sendMessage(prompt)
+    }
+
     // MARK: - HTTP
 
     private func sendMessage(_ content: String) async throws -> String {

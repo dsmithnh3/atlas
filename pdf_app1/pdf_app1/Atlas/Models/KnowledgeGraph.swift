@@ -45,6 +45,8 @@ struct ConceptNode: Identifiable, Hashable {
     var level: NodeLevel
     var parentConceptID: UUID?
     var highlightColorIndex: Int?
+    var hierarchyLevel: Int
+    var isDocumentSummary: Bool
 
     init(
         id: UUID = UUID(),
@@ -60,7 +62,9 @@ struct ConceptNode: Identifiable, Hashable {
         parentChapterID: UUID? = nil,
         level: NodeLevel = .concept,
         parentConceptID: UUID? = nil,
-        highlightColorIndex: Int? = nil
+        highlightColorIndex: Int? = nil,
+        hierarchyLevel: Int = 1,
+        isDocumentSummary: Bool = false
     ) {
         self.id = id
         self.label = label
@@ -76,6 +80,8 @@ struct ConceptNode: Identifiable, Hashable {
         self.level = level
         self.parentConceptID = parentConceptID
         self.highlightColorIndex = highlightColorIndex
+        self.hierarchyLevel = hierarchyLevel
+        self.isDocumentSummary = isDocumentSummary
     }
 }
 
@@ -84,7 +90,8 @@ extension ConceptNode: Codable {
     enum CodingKeys: String, CodingKey {
         case id, label, type, summary, sourceAnchors, readingState, expansionState
         case confidence, isPinned, position, parentChapterID
-        case level, parentConceptID, highlightColorIndex
+        case level, parentConceptID, highlightColorIndex, hierarchyLevel
+        case isDocumentSummary
     }
 
     init(from decoder: Decoder) throws {
@@ -103,6 +110,8 @@ extension ConceptNode: Codable {
         level = try c.decodeIfPresent(NodeLevel.self, forKey: .level) ?? .concept
         parentConceptID = try c.decodeIfPresent(UUID.self, forKey: .parentConceptID)
         highlightColorIndex = try c.decodeIfPresent(Int.self, forKey: .highlightColorIndex)
+        hierarchyLevel = try c.decodeIfPresent(Int.self, forKey: .hierarchyLevel) ?? (level == .concept ? 0 : 1)
+        isDocumentSummary = try c.decodeIfPresent(Bool.self, forKey: .isDocumentSummary) ?? false
     }
 }
 
@@ -133,8 +142,13 @@ struct GraphEdge: Identifiable, Codable, Hashable {
 }
 
 // MARK: - Knowledge Graph
+// `nonisolated` to opt out of the project-wide MainActor default
+// (SWIFT_DEFAULT_ACTOR_ISOLATION). KnowledgeGraph is a pure data
+// model (no AppKit, no @Published, consumed via @Observable / @State);
+// without this, MainActor-isolated deinit double-frees task-local
+// storage on macOS 26.3. Same pattern as QuadTreeNode (commit c8cad91).
 @Observable
-class KnowledgeGraph {
+nonisolated class KnowledgeGraph {
     var nodes: [UUID: ConceptNode] = [:]
     var edges: [UUID: GraphEdge] = [:]
     var documentProcessingState: [URL: ProcessingState] = [:]
@@ -144,6 +158,7 @@ class KnowledgeGraph {
 
     var nodeCount: Int { nodes.count }
     var edgeCount: Int { edges.count }
+    var expansionGeneration: Int = 0
 
     var allNodes: [ConceptNode] {
         Array(nodes.values)
@@ -246,6 +261,49 @@ class KnowledgeGraph {
     func parentConcept(of entityID: UUID) -> ConceptNode? {
         guard let entity = nodes[entityID], let parentID = entity.parentConceptID else { return nil }
         return nodes[parentID]
+    }
+
+    func childNodes(of nodeID: UUID) -> [ConceptNode] {
+        guard let edgeIDs = adjacency[nodeID] else { return [] }
+        return edgeIDs.compactMap { edgeID -> ConceptNode? in
+            guard let edge = edges[edgeID],
+                  edge.type == .subtopicOf,
+                  edge.targetNodeID == nodeID else { return nil }
+            return nodes[edge.sourceNodeID]
+        }
+    }
+
+    func level0Nodes() -> [ConceptNode] {
+        allNodes.filter { $0.hierarchyLevel == 0 }
+    }
+
+    func toggleExpansion(_ nodeID: UUID) {
+        guard var node = nodes[nodeID] else { return }
+        node.expansionState = (node.expansionState == .expanded) ? .collapsed : .expanded
+        nodes[nodeID] = node
+        expansionGeneration += 1
+    }
+
+    func expandAll() {
+        for id in nodes.keys {
+            nodes[id]?.expansionState = .expanded
+        }
+        expansionGeneration += 1
+    }
+
+    func collapseAll() {
+        for id in nodes.keys {
+            nodes[id]?.expansionState = .collapsed
+        }
+        expansionGeneration += 1
+    }
+
+    func hasChildren(_ nodeID: UUID) -> Bool {
+        guard let edgeIDs = adjacency[nodeID] else { return false }
+        return edgeIDs.contains { edgeID in
+            guard let edge = edges[edgeID] else { return false }
+            return edge.type == .subtopicOf && edge.targetNodeID == nodeID
+        }
     }
 
     // MARK: - Highlight Color Assignment

@@ -10,7 +10,11 @@ import Foundation
 import PDFKit
 import AppKit
 
-class HighlightSyncBridge {
+// `nonisolated` to opt out of the project-wide MainActor default
+// (SWIFT_DEFAULT_ACTOR_ISOLATION). Methods that genuinely need MainActor
+// (e.g. applyPersistentHighlights) are annotated explicitly. See
+// 2026-05-09 handoff for the macOS 26.3 isolated-deinit runtime bug.
+nonisolated class HighlightSyncBridge {
 
     /// Key used to tag Atlas-managed annotations in PDF
     static let atlasNodeIDKey = "atlasNodeID"
@@ -94,9 +98,52 @@ class HighlightSyncBridge {
         _ = applyPersistentHighlights(document: document, graph: graph, documentURL: documentURL)
     }
 
+    // MARK: - Text-based passage finding
+
+    func findPassageRects(snippet: String, on page: PDFPage) -> [CGRect]? {
+        guard !snippet.isEmpty,
+              let pageText = page.string,
+              !pageText.isEmpty else { return nil }
+
+        let nsRange: NSRange
+        if let range = pageText.range(of: snippet, options: [.caseInsensitive, .diacriticInsensitive]) {
+            nsRange = NSRange(range, in: pageText)
+        } else if let regexRange = whitespaceFlexibleMatch(snippet: snippet, in: pageText) {
+            // PDF text has hard line breaks at wraps; the snippet uses spaces.
+            nsRange = regexRange
+        } else {
+            return nil
+        }
+
+        guard let selection = page.selection(for: nsRange) else { return nil }
+
+        let lineSelections = selection.selectionsByLine()
+        let rects = lineSelections.compactMap { lineSel -> CGRect? in
+            let rect = lineSel.bounds(for: page)
+            return rect.isEmpty ? nil : rect
+        }
+
+        return rects.isEmpty ? nil : rects
+    }
+
+    private func whitespaceFlexibleMatch(snippet: String, in pageText: String) -> NSRange? {
+        let words = snippet.split(whereSeparator: { $0.isWhitespace })
+        guard !words.isEmpty else { return nil }
+        let pattern = words
+            .map { NSRegularExpression.escapedPattern(for: String($0)) }
+            .joined(separator: #"\s+"#)
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let nsText = pageText as NSString
+        let match = regex.firstMatch(in: pageText, range: NSRange(location: 0, length: nsText.length))
+        return match?.range
+    }
+
     // MARK: - Source Pulse (temporary emphasis)
 
     /// Pulse an existing persistent highlight or create a temporary one
+    @MainActor
     func showSourcePulse(
         on pdfView: PDFView,
         page: PDFPage,
@@ -138,6 +185,7 @@ class HighlightSyncBridge {
     }
 
     /// Navigate the PDF view to a source anchor and pulse with the node's color
+    @MainActor
     func navigateAndPulse(
         pdfView: PDFView,
         anchor: SourceAnchor,

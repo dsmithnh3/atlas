@@ -20,6 +20,7 @@ class ExtractionPipeline {
     var totalPages: Int = 0
     var statusMessage: String = ""
     var scannedPDFDetected: Bool = false
+    var extractionMode: ExtractionMode = .fast
 
     var progress: Double {
         guard totalPages > 0 else { return 0 }
@@ -29,6 +30,7 @@ class ExtractionPipeline {
     private var processingTask: Task<Void, Never>?
     private let textExtractor = TextExtractor()
     private let layoutAnalyzer = LayoutAnalyzer()
+    private let deepPipeline = DeepExtractionPipeline()
     private let batchSize = 5
 
     func cancel() {
@@ -46,7 +48,8 @@ class ExtractionPipeline {
         pageRange: Range<Int>,
         graph: KnowledgeGraph,
         aiService: AIServiceManager,
-        projectID: UUID? = nil
+        projectID: UUID? = nil,
+        mode: ExtractionMode = .fast
     ) async {
         log.info("=== Starting extraction for \(documentURL.lastPathComponent), pages \(pageRange.lowerBound+1)-\(pageRange.upperBound) ===")
 
@@ -58,6 +61,25 @@ class ExtractionPipeline {
         }
 
         log.info("Using backend: \(backend.displayName) / \(backend.modelIdentifier)")
+
+        if mode == .deep {
+            statusMessage = "Deep extraction: extracting text..."
+            log.info("Using Deep mode (3-pass pipeline)")
+
+            let chunks = extractTextChunks(
+                document: document,
+                documentURL: documentURL,
+                pageRange: pageRange
+            )
+
+            await deepPipeline.processChunks(chunks, backend: backend, graph: graph, documentURL: documentURL)
+
+            statusMessage = deepPipeline.statusMessage
+            isProcessing = false
+            graph.documentProcessingState[documentURL] = .complete
+            GraphStore.shared.scheduleSave(graph, for: documentURL)
+            return
+        }
 
         totalPages = pageRange.count
 
@@ -111,15 +133,20 @@ class ExtractionPipeline {
             pageIndex = batchEnd
         }
 
-        isProcessing = false
         if Task.isCancelled {
+            isProcessing = false
             graph.documentProcessingState[documentURL] = .unprocessed
             log.info("=== Extraction cancelled for \(documentURL.lastPathComponent) ===")
-        } else {
-            statusMessage = "Done — \(graph.nodeCount) concepts extracted"
-            graph.documentProcessingState[documentURL] = .complete
-            log.info("=== Extraction complete: \(graph.nodeCount) nodes, \(graph.edgeCount) edges ===")
+            return
         }
+
+        statusMessage = "Generating document summary..."
+        await Self.appendDocumentSummary(graph: graph, documentURL: documentURL, backend: backend)
+
+        isProcessing = false
+        statusMessage = "Done — \(graph.nodeCount) concepts extracted"
+        graph.documentProcessingState[documentURL] = .complete
+        log.info("=== Extraction complete: \(graph.nodeCount) nodes, \(graph.edgeCount) edges ===")
     }
 
     func processFullDocument(
@@ -127,13 +154,14 @@ class ExtractionPipeline {
         documentURL: URL,
         graph: KnowledgeGraph,
         aiService: AIServiceManager,
-        projectID: UUID? = nil
+        projectID: UUID? = nil,
+        mode: ExtractionMode = .fast
     ) {
         guard !isProcessing else {
             log.warning("processFullDocument called while already processing — queued by caller")
             return
         }
-        log.info("processFullDocument: \(documentURL.lastPathComponent), \(document.pageCount) pages")
+        log.info("processFullDocument: \(documentURL.lastPathComponent), \(document.pageCount) pages, mode=\(mode.rawValue)")
         isProcessing = true
         graph.documentProcessingState[documentURL] = .processing
         scannedPDFDetected = false
@@ -144,7 +172,8 @@ class ExtractionPipeline {
                 pageRange: 0..<document.pageCount,
                 graph: graph,
                 aiService: aiService,
-                projectID: projectID
+                projectID: projectID,
+                mode: mode
             )
         }
     }
@@ -269,6 +298,7 @@ class ExtractionPipeline {
             // Top-level items are always concept-level. Only nested items (inner loop) are entities.
             // This prevents orphan entities when the LLM returns a flat list.
             let effectiveLevel: NodeLevel = .concept
+            let effectiveHierarchyLevel = rawConcept.hierarchyLevel ?? 1
 
             // Check for existing concept node with same label
             let existingNode = graph.allNodes.first { $0.label.lowercased() == rawConcept.label.lowercased() }
@@ -279,6 +309,7 @@ class ExtractionPipeline {
                 if let summary = rawConcept.summary, existing.summary == nil {
                     existing.summary = summary
                 }
+                existing.hierarchyLevel = effectiveHierarchyLevel
                 graph.updateNode(existing)
                 conceptNodeID = existing.id
                 log.debug("[Step 5] Updated existing concept: \"\(existing.label)\"")
@@ -291,11 +322,31 @@ class ExtractionPipeline {
                     sourceAnchors: [conceptAnchor!],
                     confidence: rawConcept.confidence ?? 0.8,
                     level: effectiveLevel,
-                    highlightColorIndex: colorIndex
+                    highlightColorIndex: colorIndex,
+                    hierarchyLevel: effectiveHierarchyLevel
                 )
                 graph.addNode(node)
                 conceptNodeID = node.id
-                log.debug("[Step 5] Added concept: \"\(node.label)\" level=\(effectiveLevel.rawValue)")
+                log.debug("[Step 5] Added concept: \"\(node.label)\" hierarchy=\(effectiveHierarchyLevel)")
+            }
+
+            // Create subtopicOf edge if parent theme specified
+            if let parentLabel = rawConcept.subtopicOf,
+               let parentNode = graph.allNodes.first(where: { $0.label.lowercased() == parentLabel.lowercased() }) {
+                let alreadyLinked = graph.allEdges.contains {
+                    $0.sourceNodeID == conceptNodeID && $0.targetNodeID == parentNode.id && $0.type == .subtopicOf
+                }
+                if !alreadyLinked {
+                    let subtopicEdge = GraphEdge(
+                        sourceNodeID: conceptNodeID,
+                        targetNodeID: parentNode.id,
+                        type: .subtopicOf,
+                        confidence: 1.0,
+                        label: "is a subtopic of"
+                    )
+                    graph.addEdge(subtopicEdge)
+                    log.debug("[Step 5] Added subtopicOf edge: \"\(rawConcept.label)\" → \"\(parentLabel)\"")
+                }
             }
 
             // Process nested entities
@@ -390,7 +441,8 @@ class ExtractionPipeline {
                         sourceNodeID: sourceNode.id,
                         targetNodeID: targetNode.id,
                         type: edgeType,
-                        confidence: rawEdge.confidence ?? 0.7
+                        confidence: rawEdge.confidence ?? 0.7,
+                        label: rawEdge.linkingPhrase
                     )
                     graph.addEdge(edge)
                     added += 1
@@ -411,6 +463,31 @@ class ExtractionPipeline {
             GraphStore.shared.scheduleSave(graph, for: documentURL)
             log.info("[Step 7] Scheduled per-document auto-save")
         }
+    }
+
+    // MARK: - Deep Mode Text Chunking
+
+    private func extractTextChunks(
+        document: PDFDocument,
+        documentURL: URL,
+        pageRange: Range<Int>
+    ) -> [TextChunk] {
+        var chunks: [TextChunk] = []
+        var pageIndex = pageRange.lowerBound
+
+        while pageIndex < pageRange.upperBound {
+            let batchEnd = min(pageIndex + batchSize, pageRange.upperBound)
+            let batchRange = pageIndex..<batchEnd
+
+            let pageResults = textExtractor.extractPages(from: document, pageRange: batchRange)
+            let text = pageResults.map { $0.fullText }.joined(separator: "\n\n")
+
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                chunks.append(TextChunk(text: text, pageRange: batchRange, documentURL: documentURL))
+            }
+            pageIndex = batchEnd
+        }
+        return chunks
     }
 
     // MARK: - Source Anchor Resolution
@@ -468,5 +545,92 @@ class ExtractionPipeline {
         }
 
         return nil
+    }
+}
+
+// MARK: - Document Summary Generation
+
+extension ExtractionPipeline {
+    /// Generate (or replace) a per-document summary node by feeding the top root
+    /// concepts to the backend's existing `summarizeConcept` method.
+    /// Inserted with `isDocumentSummary = true` and `hierarchyLevel = -1` so the
+    /// `.document` semantic-zoom level can find it.
+    static func appendDocumentSummary(
+        graph: KnowledgeGraph,
+        documentURL: URL,
+        backend: any AtlasModel
+    ) async {
+        let docFilename = documentURL.lastPathComponent
+
+        let rootConcepts = graph.allNodes
+            .filter { node in
+                node.level == .concept &&
+                node.hierarchyLevel == 0 &&
+                !node.isDocumentSummary &&
+                node.sourceAnchors.contains { $0.documentURL == documentURL }
+            }
+            .sorted { graph.edges(for: $0.id).count > graph.edges(for: $1.id).count }
+            .prefix(8)
+
+        guard !rootConcepts.isEmpty else {
+            log.info("[Summary] No root concepts for \(docFilename), skipping doc summary")
+            return
+        }
+
+        let bullets = rootConcepts.map { node -> String in
+            if let s = node.summary, !s.isEmpty { return "- \(node.label): \(s)" }
+            return "- \(node.label)"
+        }.joined(separator: "\n")
+
+        let sourceText = """
+        Document: \(docFilename)
+
+        Key concepts extracted from this document:
+        \(bullets)
+        """
+
+        let summaryText: String
+        do {
+            summaryText = try await backend.summarizeConcept(docFilename, sourceText: sourceText)
+        } catch {
+            log.error("[Summary] LLM call failed for \(docFilename): \(error.localizedDescription)")
+            return
+        }
+
+        let trimmed = summaryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            log.warning("[Summary] LLM returned empty summary for \(docFilename)")
+            return
+        }
+
+        if let existing = graph.allNodes.first(where: {
+            $0.isDocumentSummary && $0.sourceAnchors.contains { $0.documentURL == documentURL }
+        }) {
+            var updated = existing
+            updated.label = docFilename
+            updated.summary = trimmed
+            graph.updateNode(updated)
+            log.info("[Summary] Replaced doc summary node for \(docFilename)")
+            return
+        }
+
+        let anchor = SourceAnchor(
+            documentURL: documentURL,
+            pageIndex: 0,
+            boundingBox: .zero,
+            textSnippet: ""
+        )
+        let node = ConceptNode(
+            label: docFilename,
+            type: .concept,
+            summary: trimmed,
+            sourceAnchors: [anchor],
+            confidence: 1.0,
+            level: .concept,
+            hierarchyLevel: -1,
+            isDocumentSummary: true
+        )
+        graph.addNode(node)
+        log.info("[Summary] Added doc summary node for \(docFilename)")
     }
 }

@@ -204,6 +204,13 @@ class DocumentManager: ObservableObject {
     /// Uses security-scoped access directly instead of `openDocument` because
     /// `FileManager.isReadableFile` returns false for bookmark-resolved URLs in a sandboxed app.
     func restoreOpenSession() {
+        // Skip session restore when the app is hosting an XCTest bundle —
+        // loading real user PDFs/graphs during tests crashes the host (malloc
+        // double-free observed 2026-05-09) and is wrong on principle.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            return
+        }
+
         guard let data = UserDefaults.standard.data(forKey: AppConstants.openSessionBookmarksKey),
               let bookmarks = try? JSONDecoder().decode([Data].self, from: data) else {
             return

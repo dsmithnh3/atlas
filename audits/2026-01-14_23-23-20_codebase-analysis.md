@@ -1,3 +1,5 @@
+<!-- Ported from atlas/docs/CODEBASE_ANALYSIS.md on 2026-05-07 via /port-docs -->
+<!-- NOTE: This Jan 14, 2026 snapshot predates the Atlas/AI/knowledge-graph rewrite. File structure and metrics here describe the pre-rewrite codebase. Kept for historical context. -->
 # PDF Viewer App - Comprehensive Codebase Analysis
 
 ## Executive Summary
@@ -358,4 +360,3 @@ This is a **solid prototype** with good architectural foundations, but requires 
 
 *Analysis Date: 2024*
 *Analyzed by: Senior Developer & Product Manager*
-
