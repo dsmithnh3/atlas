@@ -18,9 +18,13 @@
 - `MapInteraction`: Pan, zoom (0.1-5.0x), node drag, hit testing, fit-to-content.
 
 ### AI Extraction (`Atlas/AI/`)
-- `ExtractionPipeline`: Processes PDFs in 5-page batches. Extracts text → sends to LLM → parses JSON response into nodes/edges. Deduplicates across batches.
+- `ExtractionPipeline`: Fast pipeline. Processes PDFs in 5-page batches. Extracts text → sends to LLM → parses JSON response into nodes/edges. Deduplicates across batches.
+- `DeepExtractionPipeline`: Multi-pass deeper extraction with richer relationships. Mode is selected via `ExtractionMode` (read from `@AppStorage` in `MultiDocumentView`).
 - `PromptTemplates`: Structured prompt requesting concepts (3-8), entities (1-5 per concept), edges, with exact `textSpan` quotes.
 - `AIServiceManager`: Multi-backend support (Claude, OpenAI, Gemini, Ollama) via `AtlasModelProtocol`. API keys in Keychain, response caching via SHA256 hash.
+
+### Annotations (`Atlas/Annotations/`)
+- `AnnotationGeometry`: Pure-value module for annotation move/resize math. `DragHandle` enum (8 corner/edge handles + `.body`), `translated(by:)`, `resized(handle:by:)`, `handle(at:)` hit-test, with page-bounds + min-size clamping. Used by `.select` `AnnotationMode` for body-drag-to-translate; corner/edge resize wiring is the next chunk.
 
 ### PDF-Map Sync (`Atlas/Sync/`)
 - `BidirectionalSyncManager`: PDF scroll → updates `activeNodeID` on map. Map node click → jumps PDF to source page via `navigateToPDFPage` callback.
@@ -34,8 +38,8 @@
 ### Other Key Files
 - `MultiDocumentView.swift`: Tab management, sidebar sections (open docs, projects, recents), comparison mode.
 - `ProjectsManager.swift` / `DocumentManager.swift`: Project and multi-tab document state.
-- `PDFViewerView.swift`: PDFKit wrapper with annotation tools.
-- `Atlas/UI/`: Settings, command palette, merge proposals, first-run, search views.
+- `PDFViewerView.swift`: PDFKit wrapper with annotation tools. Publishes toolbar state/actions via `PDFToolbarBridge` rather than rendering its own toolbar — the sidebar in `MultiDocumentView` reads the bridge and renders the PDF toolbar atop the "OPEN" tabs.
+- `Atlas/UI/`: Settings, command palette, merge proposals, first-run, search views. `PDFToolbarBridge` is the `@Observable` bridge between `PDFViewerView` and the sidebar toolbar.
 
 ## Build & Run
 Xcode project at `pdf_app1/pdf_app1.xcodeproj`. macOS target.

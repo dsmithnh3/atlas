@@ -23,7 +23,8 @@ Durable "someday/maybe" items — distinct from session-level Unresolved (which 
 
 ## Active / Next
 
-(no `[active]` items as of 2026-05-11 — Pattern A residual closed, autoRemoveStaleFiles bug fixed)
+- [active 2026-05-12] Annotation move/resize — body-drag-to-translate landed via `.select` mode + `AnnotationGeometry.translated` + `.modify` undo op (commits `30a884d` → `690e0a6` on `wip/feature-cherry-pick`). Not yet smoke-tested manually — PDFKit redraw-on-bounds-mutation unverified. Remaining for full feature: corner/edge resize via `AnnotationGeometry.resized` + `handle(at:)` (math is in but unused), selection chrome overlay (handles + selection rect), click-without-drag selection, keyboard delete. **Priority:** medium-high.
+- [next] Drop dead code in `PDFViewerView.swift`: `annotationModeLabel` / `annotationUsesColor` (moved to `MultiDocumentView` as `pdfAnnotationIcon` / `pdfAnnotationUsesColor`). Also revisit unused `columnVisibility` `@State` on `NavigationSplitView` — keep or drop.
 
 <!-- Pattern A resolved 2026-05-11 via structural fix: removed `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` from project.pbxproj (4 occurrences). Only fallout was 2 PDFKit-touching methods in HighlightSyncBridge needing explicit @MainActor. Full suite: 58/6-incomplete → 64/0-incomplete. Side-effect: exposed and fixed a long-standing ProjectsManager save/load race (CombineLatest3 never emitted without projectsSortMode change; load() overwrote in-memory state when file missing). -->
 - Optionally swap `summarizeConcept` for `generateRawResponse` + custom doc-summary prompt if "Summarize the concept '<filename>'" wording produces awkward output once a real run happens. Low priority; only if observed.
@@ -41,7 +42,8 @@ Durable "someday/maybe" items — distinct from session-level Unresolved (which 
 
 
 ## Annotations
-- Annotation move/resize — drag handles UX (TODO #13). **Priority:** medium-high.
+<!-- Body-drag-translate landed 2026-05-12 — see [active] above. Remaining work tracked there. -->
+- Annotation move/resize — drag handles UX, the resize half (TODO #13). **Priority:** medium-high. Now scoped to: corner/edge handle resize (math in `AnnotationGeometry.resized` is unused but tested), selection chrome overlay (NSView on top of `PDFView`, ~80 lines), click-without-drag selection, keyboard delete on selection.
 - Verify annotation coordinate conversion accuracy; use PDFKit built-in conversion methods consistently; fix Y-coordinate inversion if needed; dynamic annotation sizing based on content; coordinate-conversion tests; thorough bounds validation (TODO #9).
 - Annotation state persistence between sessions; fix `currentHighlight` sync; improve state management patterns; state validation (TODO #10).
 
