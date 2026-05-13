@@ -10,9 +10,10 @@ import os.log
 
 private let log = AtlasLogger.ai
 
-final class OpenAIBackend: AtlasModel, @unchecked Sendable {
+final class OpenAIBackend: LLMBackend, @unchecked Sendable {
     let displayName: String
     let modelIdentifier: String
+    let logTag = "OpenAI"
     private let apiKey: String
     private let baseURL: String
     private let session: URLSession
@@ -32,81 +33,13 @@ final class OpenAIBackend: AtlasModel, @unchecked Sendable {
         self.session = URLSession.shared
     }
 
-    // MARK: - AtlasModel
-
-    func extractConcepts(from text: String, context: ExtractionContext) async throws -> [RawConcept] {
-        log.info("[OpenAI] extractConcepts: prompt \(text.count) chars")
-        let prompt = PromptTemplates.conceptExtraction(text: text, context: context)
-        let response = try await sendChatCompletion(prompt)
-        do {
-            let parsed = try parseExtractionResponse(response)
-            log.info("[OpenAI] Parsed \(parsed.concepts.count) concepts, \(parsed.edges.count) edges from response")
-            return parsed.concepts
-        } catch {
-            log.error("[OpenAI] Failed to parse extraction response: \(error)")
-            log.error("[OpenAI] Raw response (first 500 chars): \(String(response.prefix(500)))")
-            throw error
+    func transport(prompt: String) async throws -> String {
+        guard isAvailable else {
+            log.error("[OpenAI] No API key configured (and not localhost)")
+            throw AIError.noAPIKey
         }
-    }
 
-    func proposeEdges(between concepts: [String], context: String) async throws -> [RawEdge] {
-        log.info("[OpenAI] proposeEdges for \(concepts.count) concepts")
-        let prompt = PromptTemplates.edgeProposal(concepts: concepts, context: context)
-        let response = try await sendChatCompletion(prompt)
-        do {
-            let edges = try parseEdgesResponse(response)
-            log.info("[OpenAI] Parsed \(edges.count) edges")
-            return edges
-        } catch {
-            log.error("[OpenAI] Failed to parse edges response: \(error)")
-            log.error("[OpenAI] Raw response (first 500 chars): \(String(response.prefix(500)))")
-            throw error
-        }
-    }
-
-    func summarizeConcept(_ label: String, sourceText: String) async throws -> String {
-        log.info("[OpenAI] summarizeConcept: \(label)")
-        let prompt = PromptTemplates.summarize(conceptLabel: label, sourceText: sourceText)
-        return try await sendChatCompletion(prompt)
-    }
-
-    func answerQuestion(_ question: String, context: String) async throws -> AnswerWithCitations {
-        log.info("[OpenAI] answerQuestion: \(question.prefix(80))")
-        let prompt = PromptTemplates.questionAnswer(question: question, context: context)
-        let response = try await sendChatCompletion(prompt)
-        return try parseAnswerResponse(response)
-    }
-
-    func proposeMerges(
-        documentAConcepts: [(label: String, summary: String?)],
-        documentBConcepts: [(label: String, summary: String?)]
-    ) async throws -> [RawMergeProposal] {
-        log.info("[OpenAI] proposeMerges: \(documentAConcepts.count) vs \(documentBConcepts.count) concepts")
-        let prompt = PromptTemplates.semanticMergeProposal(
-            documentATitle: "Document A",
-            documentAConcepts: documentAConcepts,
-            documentBTitle: "Document B",
-            documentBConcepts: documentBConcepts
-        )
-        let response = try await sendChatCompletion(prompt)
-        let cleaned = extractJSON(from: response)
-        guard let data = cleaned.data(using: .utf8) else {
-            log.warning("[OpenAI] proposeMerges: empty data after JSON extraction")
-            return []
-        }
-        let merges = (try? JSONDecoder().decode([RawMergeProposal].self, from: data)) ?? []
-        log.info("[OpenAI] proposeMerges: \(merges.count) merge proposals")
-        return merges
-    }
-
-    func generateRawResponse(prompt: String) async throws -> String {
-        try await sendChatCompletion(prompt)
-    }
-
-    // MARK: - HTTP
-
-    private func sendChatCompletion(_ content: String) async throws -> String {
-        log.info("[OpenAI] POST \(self.baseURL)/v1/chat/completions (prompt: \(content.count) chars, model: \(self.modelIdentifier))")
+        log.info("[OpenAI] POST \(self.baseURL)/v1/chat/completions (prompt: \(prompt.count) chars, model: \(self.modelIdentifier))")
 
         let url = URL(string: "\(baseURL)/v1/chat/completions")!
         var request = URLRequest(url: url)
@@ -120,9 +53,9 @@ final class OpenAIBackend: AtlasModel, @unchecked Sendable {
         let body: [String: Any] = [
             "model": modelIdentifier,
             "messages": [
-                ["role": "user", "content": content]
+                ["role": "user", "content": prompt]
             ],
-            "max_tokens": 4096,
+            "max_tokens": 8192,
             "temperature": 0.1
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -154,42 +87,5 @@ final class OpenAIBackend: AtlasModel, @unchecked Sendable {
         log.info("[OpenAI] Got text response: \(text.count) chars")
         log.debug("[OpenAI] Response preview: \(String(text.prefix(200)))")
         return text
-    }
-
-    // MARK: - Parsing (shared with ClaudeBackend pattern)
-
-    private func parseExtractionResponse(_ text: String) throws -> ExtractionResponse {
-        let cleaned = extractJSON(from: text)
-        guard let data = cleaned.data(using: .utf8) else { throw AIError.decodingError("Invalid UTF8") }
-        return try JSONDecoder().decode(ExtractionResponse.self, from: data)
-    }
-
-    private func parseEdgesResponse(_ text: String) throws -> [RawEdge] {
-        let cleaned = extractJSON(from: text)
-        guard let data = cleaned.data(using: .utf8) else { throw AIError.decodingError("Invalid UTF8") }
-        do {
-            return try JSONDecoder().decode([RawEdge].self, from: data)
-        } catch {
-            if let response = try? JSONDecoder().decode(ExtractionResponse.self, from: data) {
-                return response.edges
-            }
-            throw AIError.decodingError(error.localizedDescription)
-        }
-    }
-
-    private func parseAnswerResponse(_ text: String) throws -> AnswerWithCitations {
-        let cleaned = extractJSON(from: text)
-        guard let data = cleaned.data(using: .utf8) else {
-            return AnswerWithCitations(answer: text, citations: [])
-        }
-        do {
-            return try JSONDecoder().decode(AnswerWithCitations.self, from: data)
-        } catch {
-            return AnswerWithCitations(answer: text, citations: [])
-        }
-    }
-
-    private func extractJSON(from text: String) -> String {
-        JSONRepair.cleanAndRepair(text)
     }
 }

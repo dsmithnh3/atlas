@@ -10,9 +10,10 @@ import os.log
 
 private let log = AtlasLogger.ai
 
-final class ClaudeBackend: AtlasModel, @unchecked Sendable {
+final class ClaudeBackend: LLMBackend, @unchecked Sendable {
     let displayName = "Anthropic Claude"
     let modelIdentifier: String
+    let logTag = "Claude"
     private let apiKey: String
     private let baseURL: String
     private let session: URLSession
@@ -26,86 +27,13 @@ final class ClaudeBackend: AtlasModel, @unchecked Sendable {
         self.session = URLSession.shared
     }
 
-    // MARK: - AtlasModel
-
-    func extractConcepts(from text: String, context: ExtractionContext) async throws -> [RawConcept] {
-        log.info("[Claude] extractConcepts: prompt \(text.count) chars")
-        let prompt = PromptTemplates.conceptExtraction(text: text, context: context)
-        let response = try await sendMessage(prompt)
-        do {
-            let parsed = try parseExtractionResponse(response)
-            log.info("[Claude] Parsed \(parsed.concepts.count) concepts, \(parsed.edges.count) edges from response")
-            return parsed.concepts
-        } catch {
-            log.error("[Claude] Failed to parse extraction response: \(error)")
-            log.error("[Claude] Raw response (first 500 chars): \(String(response.prefix(500)))")
-            throw error
-        }
-    }
-
-    func proposeEdges(between concepts: [String], context: String) async throws -> [RawEdge] {
-        log.info("[Claude] proposeEdges for \(concepts.count) concepts")
-        let prompt = PromptTemplates.edgeProposal(concepts: concepts, context: context)
-        let response = try await sendMessage(prompt)
-        do {
-            let edges = try parseEdgesResponse(response)
-            log.info("[Claude] Parsed \(edges.count) edges")
-            return edges
-        } catch {
-            log.error("[Claude] Failed to parse edges response: \(error)")
-            log.error("[Claude] Raw response (first 500 chars): \(String(response.prefix(500)))")
-            throw error
-        }
-    }
-
-    func summarizeConcept(_ label: String, sourceText: String) async throws -> String {
-        log.info("[Claude] summarizeConcept: \(label)")
-        let prompt = PromptTemplates.summarize(conceptLabel: label, sourceText: sourceText)
-        return try await sendMessage(prompt)
-    }
-
-    func answerQuestion(_ question: String, context: String) async throws -> AnswerWithCitations {
-        log.info("[Claude] answerQuestion: \(question.prefix(80))")
-        let prompt = PromptTemplates.questionAnswer(question: question, context: context)
-        let response = try await sendMessage(prompt)
-        return try parseAnswerResponse(response)
-    }
-
-    func proposeMerges(
-        documentAConcepts: [(label: String, summary: String?)],
-        documentBConcepts: [(label: String, summary: String?)]
-    ) async throws -> [RawMergeProposal] {
-        log.info("[Claude] proposeMerges: \(documentAConcepts.count) vs \(documentBConcepts.count) concepts")
-        let prompt = PromptTemplates.semanticMergeProposal(
-            documentATitle: "Document A",
-            documentAConcepts: documentAConcepts,
-            documentBTitle: "Document B",
-            documentBConcepts: documentBConcepts
-        )
-        let response = try await sendMessage(prompt)
-        let cleaned = extractJSON(from: response)
-        guard let data = cleaned.data(using: .utf8) else {
-            log.warning("[Claude] proposeMerges: empty data after JSON extraction")
-            return []
-        }
-        let merges = (try? JSONDecoder().decode([RawMergeProposal].self, from: data)) ?? []
-        log.info("[Claude] proposeMerges: \(merges.count) merge proposals")
-        return merges
-    }
-
-    func generateRawResponse(prompt: String) async throws -> String {
-        try await sendMessage(prompt)
-    }
-
-    // MARK: - HTTP
-
-    private func sendMessage(_ content: String) async throws -> String {
+    func transport(prompt: String) async throws -> String {
         guard isAvailable else {
             log.error("[Claude] No API key configured")
             throw AIError.noAPIKey
         }
 
-        log.info("[Claude] POST \(self.baseURL)/v1/messages (prompt: \(content.count) chars, model: \(self.modelIdentifier))")
+        log.info("[Claude] POST \(self.baseURL)/v1/messages (prompt: \(prompt.count) chars, model: \(self.modelIdentifier))")
 
         let url = URL(string: "\(baseURL)/v1/messages")!
         var request = URLRequest(url: url)
@@ -117,9 +45,10 @@ final class ClaudeBackend: AtlasModel, @unchecked Sendable {
 
         let body: [String: Any] = [
             "model": modelIdentifier,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
+            "temperature": 0.1,
             "messages": [
-                ["role": "user", "content": content]
+                ["role": "user", "content": prompt]
             ]
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -151,46 +80,5 @@ final class ClaudeBackend: AtlasModel, @unchecked Sendable {
         log.info("[Claude] Got text response: \(text.count) chars")
         log.debug("[Claude] Response preview: \(String(text.prefix(200)))")
         return text
-    }
-
-    // MARK: - Parsing
-
-    private func parseExtractionResponse(_ text: String) throws -> ExtractionResponse {
-        let cleaned = extractJSON(from: text)
-        guard let data = cleaned.data(using: .utf8) else { throw AIError.decodingError("Invalid UTF8") }
-        do {
-            return try JSONDecoder().decode(ExtractionResponse.self, from: data)
-        } catch {
-            throw AIError.decodingError(error.localizedDescription)
-        }
-    }
-
-    private func parseEdgesResponse(_ text: String) throws -> [RawEdge] {
-        let cleaned = extractJSON(from: text)
-        guard let data = cleaned.data(using: .utf8) else { throw AIError.decodingError("Invalid UTF8") }
-        do {
-            return try JSONDecoder().decode([RawEdge].self, from: data)
-        } catch {
-            // Try wrapping in extraction response
-            if let response = try? JSONDecoder().decode(ExtractionResponse.self, from: data) {
-                return response.edges
-            }
-            throw AIError.decodingError(error.localizedDescription)
-        }
-    }
-
-    private func parseAnswerResponse(_ text: String) throws -> AnswerWithCitations {
-        let cleaned = extractJSON(from: text)
-        guard let data = cleaned.data(using: .utf8) else { throw AIError.decodingError("Invalid UTF8") }
-        do {
-            return try JSONDecoder().decode(AnswerWithCitations.self, from: data)
-        } catch {
-            // Fallback: return raw text as answer with no citations
-            return AnswerWithCitations(answer: text, citations: [])
-        }
-    }
-
-    private func extractJSON(from text: String) -> String {
-        JSONRepair.cleanAndRepair(text)
     }
 }
