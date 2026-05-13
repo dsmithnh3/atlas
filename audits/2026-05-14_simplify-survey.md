@@ -9,7 +9,7 @@ Read-only review of `Atlas/` source (57 Swift files, ~13.4k lines) across three 
 | 1 | #1 AI backend duplication | ✅ done | `058936e` | Folded with 5-drift reconciliation per [`2026-05-14_backend-drift-decisions.md`](./2026-05-14_backend-drift-decisions.md). Net -202 lines across `Atlas/AI/Backends/`. |
 | 1 | #2 O(n²) label lookups | ✅ done | `be9814b` | Added `KnowledgeGraph.labelIndex` + `node(matching:)`; locked `nodes`/`edges` to `private(set)`; routed `merge(from:)` through silent `insert`. 11 call sites converted. |
 | 1 | #3 Renderer per-frame allocations | deferred — not profiled | `fa9f768` (reverted `22b770e`) | Audit's "per frame" framing was misleading: Canvas re-runs on `@Observable` invalidation, not a frame timer. Only `graph.entities(for:)` in the concept loop was actually quadratic; the other three flagged sites were O(N) singletons. Defer until a profile shows the renderer in a hotspot. |
-| 1 | #4 Sequential LLM batches | open | — | |
+| 1 | #4 Sequential LLM batches | deferred — accuracy over speed | — | All three optimization paths trade some accuracy for wall-time. Decision: keep sequential. Option (a) — move `proposeEdges` out of per-batch loop into one end-of-extraction call — retained as future-scope if extraction wall-time becomes a complaint. |
 | 1 | #5 Split `PDFViewerView.swift` | open | — | |
 | 2 | #6–#15 | open | — | All ten cheap consolidations & correctness items unstarted. |
 | 3 | #24 `addNode` `.info` log per node | partial | `be9814b` | `merge(from:)` is now silent (routed through a private `insert(_:)`). Extraction/decode paths still emit `.info` per node. Demoting globally was not approved this session. |
@@ -48,12 +48,24 @@ Every Canvas redraw calls `graph.allNodes` (3 sites) and `graph.allEdges` (1 sit
 
 **Deferred:** Attempted in `fa9f768` (hoisted four allocations into the Canvas closure, threaded through three helpers as new params), then reverted in `22b770e`. On reread, three of the four flagged sites (`allNodes` at lines 73, 112, 118) are O(N) singletons per redraw — cheap and not compounding. Only `graph.entities(for:)` inside `drawGroupBackgrounds`'s concept loop was actually C × O(N). And Canvas does not redraw on a frame timer — it re-runs on `@Observable` invalidation — so the "per frame" framing inflated the picture. Without a profile showing the renderer in a hotspot, optimizing at the call site (growing three helper signatures by six params total) traded locality for an unmeasured win. If a real perf issue surfaces here later, the right shape is at the data layer: add an `entitiesByParent` index to `KnowledgeGraph` analogous to `be9814b`'s `labelIndex`, leaving the renderer untouched.
 
-### 4. Sequential batched LLM calls dominate wall-time
+### 4. Sequential batched LLM calls dominate wall-time — deferred (accuracy over speed)
 **File:** `Atlas/AI/ExtractionPipeline.swift:93-134`
 
 The 5-page-batch `while` loop awaits each LLM call before starting the next. Batches are network-bound and largely independent (anchor lookup reads disjoint pages).
 
 **Fix:** Wrap inner loop in `TaskGroup` with bounded concurrency (K=3); merge into the graph on the main actor. Edge proposal (step 6) stays serial.
+
+**Deferred:** Foundational walkthrough on 2026-05-14 surfaced three optimization paths, each with an accuracy cost. User declined all three; current sequential behavior preserved.
+
+The audit fix as written is incomplete on its own: today each `processBatch` makes **two** LLM calls — concept extraction (Step 4) and per-batch `proposeEdges` (Step 6) — so 50-page extraction is 10 × 2 = 20 calls, not 10. Just wrapping the loop in `TaskGroup` parallelizes both, but doesn't reduce call count.
+
+Three options considered:
+
+- **(a) Hoist `proposeEdges` out of the per-batch loop into a single call at end.** 20 → 11 calls. ~2× wall-time win, no concurrency. Cost: the single end-of-extraction `proposeEdges` call gets one batch's contextText (or a representative slice), not the per-batch context that currently informs each invocation. Edge meaning quality may degrade. Net trade: bigger graph view, narrower contextual grounding.
+- **(b) `TaskGroup` K=3 concurrency.** Parallelizes the LLM-call wait. Costs: the per-batch prompt's `Already extracted concepts: …` dedup signal goes stale within a parallel wave — the LLM has no way to know what other in-flight batches are emitting, so more lexical/semantic duplicate concepts. The post-LLM `graph.node(matching:)` check catches lexical dupes (case-insensitive label match) but not semantic ones ("Random Forests" vs "Random Forest Classifier"). Also: Ollama users serialize on local GPU/CPU — concurrent requests queue or OOM, making this strictly worse for the local-AI path unless a per-backend max-concurrency hint is added to `AtlasModel`.
+- **(c) Raise `batchSize` from 5 to 10 or 15.** One-line tuning change. Fewer batches → fewer total calls. Cost: unknown empirically — the existing `batchSize = 5` is unannotated, likely tuned for concept-extraction quality. Longer prompts may degrade the LLM's instruction-following or cause it to skim and miss concepts. Requires A/B output comparison on real PDFs to know.
+
+User's reasoning (verbatim): "feels like we're losing on accuracy." Decision: status quo. Option (a) retained as future-scope to revisit if wall-time becomes a complaint that outweighs the edge-quality cost. Options (b) and (c) parked.
 
 ### 5. `PDFViewerView.swift` bundles ~5 unrelated sub-views in 1549 lines
 **File:** `PDFViewerView.swift`
