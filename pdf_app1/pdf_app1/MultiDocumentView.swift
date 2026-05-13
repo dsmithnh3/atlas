@@ -289,11 +289,10 @@ struct MultiDocumentView: View {
     @State private var renamingProjectID: UUID?
     @State private var showingRenameProject = false
     @State private var renameProjectName: String = ""
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var toolbarBridge = PDFToolbarBridge()
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView {
             sidebar
         } detail: {
             mainContent

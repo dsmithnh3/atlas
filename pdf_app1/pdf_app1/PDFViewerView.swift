@@ -152,35 +152,10 @@ struct PDFViewerView: View {
 
     @State private var inkStrokeWidth: CGFloat = 2.0
 
-    private var annotationModeLabel: (title: String, icon: String) {
-        switch annotationMode {
-        case .none: return ("None", "hand.point.up.left")
-        case .select: return ("Move", "arrow.up.and.down.and.arrow.left.and.right")
-        case .highlightText: return ("Highlight", "highlighter")
-        case .highlightArea: return ("Area", "rectangle.dashed")
-        case .text: return ("Text", "text.bubble")
-        case .underline: return ("Underline", "underline")
-        case .strikethrough: return ("Strikethrough", "strikethrough")
-        case .stickyNote: return ("Note", "note.text")
-        case .ink: return ("Ink", "pencil.tip")
-        case .rectangle: return ("Rectangle", "rectangle")
-        case .circle: return ("Circle", "circle")
-        case .line: return ("Line", "line.diagonal")
-        case .arrow: return ("Arrow", "arrow.right")
-        }
-    }
-
-    private var annotationUsesColor: Bool {
-        switch annotationMode {
-        case .none, .select, .text, .stickyNote: return false
-        default: return true
-        }
-    }
-
     @State private var showingTextAnnotationDialog = false
     @State private var textAnnotationContent = ""
     @State private var textAnnotationPoint: CGPoint = .zero
-    
+
 
     var body: some View {
         HStack(spacing: 0) {
