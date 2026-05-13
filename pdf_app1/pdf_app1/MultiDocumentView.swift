@@ -277,6 +277,8 @@ struct MultiDocumentView: View {
     @State private var mapZoomLevel: SemanticZoomLevel = .concept
     @State private var syncManager = BidirectionalSyncManager()
     @State private var highlightBridge = HighlightSyncBridge()
+    @State private var isChatVisible = false
+    @State private var chatViewModel: ChatViewModel?
     @State private var showCommandPalette = false
     @State private var sidebarSection: SidebarSection = .projects
     @State private var projectsQuery: String = ""
