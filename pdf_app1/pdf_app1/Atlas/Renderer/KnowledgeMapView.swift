@@ -40,8 +40,6 @@ struct KnowledgeMapView: View {
 
     // Cached filtered graph to avoid recomputation on every body evaluation
     @State private var cachedFilteredGraph: KnowledgeGraph?
-    @State private var cachedFilteredNodeCount: Int = 0
-    @State private var cachedZoomLevel: SemanticZoomLevel?
 
     // Callback to navigate PDF (set by parent)
     var onNavigateToPage: ((Int, CGRect?, String?) -> Void)?
@@ -192,8 +190,6 @@ struct KnowledgeMapView: View {
         layout.computeLayout(nodes: nodes, edges: edges, canvasSize: canvasSize)
 
         cachedFilteredGraph = graphForCurrentZoom
-        cachedFilteredNodeCount = graph.nodeCount
-        cachedZoomLevel = zoomLevel
 
         if !hasComputedLayout {
             interaction.fitToContent(layout: layout, canvasSize: canvasSize)
