@@ -10,7 +10,7 @@ Read-only review of `Atlas/` source (57 Swift files, ~13.4k lines) across three 
 | 1 | #2 O(n²) label lookups | ✅ done | `be9814b` | Added `KnowledgeGraph.labelIndex` + `node(matching:)`; locked `nodes`/`edges` to `private(set)`; routed `merge(from:)` through silent `insert`. 11 call sites converted. |
 | 1 | #3 Renderer per-frame allocations | deferred — not profiled | `fa9f768` (reverted `22b770e`) | Audit's "per frame" framing was misleading: Canvas re-runs on `@Observable` invalidation, not a frame timer. Only `graph.entities(for:)` in the concept loop was actually quadratic; the other three flagged sites were O(N) singletons. Defer until a profile shows the renderer in a hotspot. |
 | 1 | #4 Sequential LLM batches | deferred — accuracy over speed | — | All three optimization paths trade some accuracy for wall-time. Decision: keep sequential. Option (a) — move `proposeEdges` out of per-batch loop into one end-of-extraction call — retained as future-scope if extraction wall-time becomes a complaint. |
-| 1 | #5 Split `PDFViewerView.swift` | open | — | |
+| 1 | #5 Split `PDFViewerView.swift` | ✅ done | `a01e05c` | Bridge + outline panel + annotation list panel extracted to dedicated files. `PDFViewerView.swift` 1549 → 734 lines. Two tiny types (`TextAnnotationDialog` 35 lines, `PDFThumbnailViewRepresentable` 19 lines) intentionally left in place. |
 | 2 | #6–#15 | open | — | All ten cheap consolidations & correctness items unstarted. |
 | 3 | #24 `addNode` `.info` log per node | partial | `be9814b` | `merge(from:)` is now silent (routed through a private `insert(_:)`). Extraction/decode paths still emit `.info` per node. Demoting globally was not approved this session. |
 | 3 | All other Tier-3 items | open | — | |
@@ -67,12 +67,14 @@ Three options considered:
 
 User's reasoning (verbatim): "feels like we're losing on accuracy." Decision: status quo. Option (a) retained as future-scope to revisit if wall-time becomes a complaint that outweighs the edge-quality cost. Options (b) and (c) parked.
 
-### 5. `PDFViewerView.swift` bundles ~5 unrelated sub-views in 1549 lines
+### 5. `PDFViewerView.swift` bundles ~5 unrelated sub-views in 1549 lines — ✅ done (`a01e05c`)
 **File:** `PDFViewerView.swift`
 
 Contains: main `PDFViewerView`, `PDFViewRepresentable` + Coordinator (683-1271, ~600 lines), `TextAnnotationDialog`, `PDFThumbnailViewRepresentable`, `PDFOutlinePanel` + `OutlineItemView`, `AnnotationListPanel` + `AnnotationRowView` (1326-1549).
 
 **Fix:** Move panels and `PDFViewRepresentable`/Coordinator to their own files.
+
+**As landed:** Pure file shuffle, no behavior change. Three new files: `PDFViewRepresentable.swift` (601 lines — the bridge + its nested `Coordinator`, kept together since they're one cohesive unit), `Atlas/UI/PDFOutlinePanel.swift` (98 lines — outline panel + recursive row), `Atlas/UI/AnnotationListPanel.swift` (146 lines — list panel + row). `PDFViewerView.swift` shrinks from 1549 to 734 lines and retains `BookmarkManager` (only used internally), `HighlightingPDFView` (referenced from `MultiDocumentView`/`PDFToolbarBridge` so accessible same-module), `PDFViewerView` itself, plus the two tiny adjacent types (`TextAnnotationDialog` 35 lines, `PDFThumbnailViewRepresentable` 19 lines) — too small to earn their own files. Project uses `PBXFileSystemSynchronizedRootGroup` so the new files auto-discover; no `.xcodeproj` edits needed. Build green. **Live smoke-test still recommended** — there's no test coverage on `PDFViewerView`, so a runtime regression (e.g., the known `updateNSView` cursor workaround at the original L768-802, now in the bridge file) wouldn't be caught by the build alone.
 
 ## Tier 2 — Cheap consolidations & correctness
 
