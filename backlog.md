@@ -23,11 +23,20 @@ Durable "someday/maybe" items — distinct from session-level Unresolved (which 
 
 ## Active / Next
 
-- [active 2026-05-12] Annotation move/resize — body-drag-to-translate landed via `.select` mode + `AnnotationGeometry.translated` + `.modify` undo op (commits `30a884d` → `690e0a6` on `wip/feature-cherry-pick`). Not yet smoke-tested manually — PDFKit redraw-on-bounds-mutation unverified. Remaining for full feature: corner/edge resize via `AnnotationGeometry.resized` + `handle(at:)` (math is in but unused), selection chrome overlay (handles + selection rect), click-without-drag selection, keyboard delete. **Priority:** medium-high.
-- [next] Drop dead code in `PDFViewerView.swift`: `annotationModeLabel` / `annotationUsesColor` (moved to `MultiDocumentView` as `pdfAnnotationIcon` / `pdfAnnotationUsesColor`). Also revisit unused `columnVisibility` `@State` on `NavigationSplitView` — keep or drop.
+- [active 2026-05-12] Annotation move/resize — body-drag-to-translate landed on `main` (via PR #49, commits `30a884d` → `690e0a6`) and **user-confirmed working** during PR #49 smoke testing. Remaining for full feature: corner/edge resize via `AnnotationGeometry.resized` + `handle(at:)` (math is in but unused), selection chrome overlay (handles + selection rect), click-without-drag selection, keyboard delete. **Priority:** medium-high.
+- [next] PR-C audit cleanup batch (~half day): issues #31, #36, #46. Includes dropping `annotationModeLabel` / `annotationUsesColor` from PDFViewerView (now superseded by `pdfAnnotationIcon` / `pdfAnnotationUsesColor` on MultiDocumentView) and the unused `columnVisibility` `@State`. See `audits/2026-05-12_issue-batching.md` for the full batching plan (PR-A perf, PR-B bugs, PR-C cleanup, PR-D refactors).
 
 <!-- Pattern A resolved 2026-05-11 via structural fix: removed `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` from project.pbxproj (4 occurrences). Only fallout was 2 PDFKit-touching methods in HighlightSyncBridge needing explicit @MainActor. Full suite: 58/6-incomplete → 64/0-incomplete. Side-effect: exposed and fixed a long-standing ProjectsManager save/load race (CombineLatest3 never emitted without projectsSortMode change; load() overwrote in-memory state when file missing). -->
 - Optionally swap `summarizeConcept` for `generateRawResponse` + custom doc-summary prompt if "Summarize the concept '<filename>'" wording produces awkward output once a real run happens. Low priority; only if observed.
+
+<!-- Done 2026-05-14:
+  - Grounded chatbot (#12) landed on main as 8 commits (range 7a03bf7..2b16016): ChatViewModel + ChatPanelView + 10-cycle ChatViewModelTests + MultiDocumentView integration (⌘4 toggle, HStack wrap, lazy toggleChat()). Smoke-tested live; 10/10 tests pass. Port adapted to use main's existing `aiService` env var (not duplicate `aiServiceManager`) and preserved 3-arg `onNavigateToPage` callback. Skipped branch's pbxproj/xcscheme hunks — project uses PBXFileSystemSynchronizedRootGroup which auto-discovers new files.
+  - Branch cleanup: deleted 4 orphan branches whose content was already on main under different SHAs — `rogue-socket/fix-resize-lag` (PR #19 + later refinement b6e35dd), `rogue-socket/fix-settings-link` (PR #21, d4aaa5f), `rogue-socket/wire-multi-doc-extract` (PR #20, 997d254; main's version is strictly better, passes `mode: selectedMode`), `rogue-socket/fix-map-drag-zoom` (PR #22, was held by Conductor worktree at ~/conductor/workspaces/atlas/papeete — worktree removed first). Also pruned stale `origin/refactor/24-fdl-barnes-hut` ref.
+  - KnowledgeMapView cleanup landed as f6b35b6: removed dead `cachedFilteredNodeCount` + `cachedZoomLevel` @State vars and their writes (4 lines). Vestige of a planned staleness check that was never wired up — actual cache refresh is gated by the onChange handlers that call recomputeLayout. Workspace-wide grep confirmed zero reads pre-removal.
+  - Local `rogue-socket/grounded-chatbot` branch deleted post-merge.
+  - One unmerged branch remains: `rogue-socket/issue-11` (guided tour subsystem, ~700 unique lines including `Atlas/Tour/*` + KnowledgeMapView wiring + MapInteraction.focusOnNode).
+  - Flagged but not pulled forward: HighlightingPDFView pageCache machinery (~70 lines populated-but-never-read) is audit issue #31, slotted for PR-C cleanup batch.
+-->
 
 <!-- Done 2026-05-09:
   - Doc-migration commit landed as 0e5d650 (13 files, +123/-1048): 7 doc deletions, 2 test-script renames to pdf_app1/scripts/, scaffolding directories. Branch now 30 commits ahead of main.
