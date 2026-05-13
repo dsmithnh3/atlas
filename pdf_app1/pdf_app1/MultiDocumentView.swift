@@ -1366,4 +1366,26 @@ struct MultiDocumentView: View {
             }
         }
     }
+
+    // MARK: - Chat
+
+    private func toggleChat() {
+        if chatViewModel == nil, let backend = aiService.createBackend() {
+            let vm = ChatViewModel(
+                backend: backend,
+                graph: knowledgeGraph,
+                documentURL: documentManager.selectedDocument?.url
+            )
+            if let doc = documentManager.selectedDocument {
+                let extractor = TextExtractor()
+                let pages = extractor.extractPages(from: doc.document, pageRange: 0..<doc.document.pageCount)
+                vm.setPageText(pages.map { (pageIndex: $0.pageIndex, text: $0.fullText) })
+            }
+            chatViewModel = vm
+        }
+        isChatVisible.toggle()
+        if isChatVisible && paneMode == .pdfOnly {
+            paneMode = .split
+        }
+    }
 }
