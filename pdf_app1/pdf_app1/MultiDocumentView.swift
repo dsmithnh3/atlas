@@ -387,6 +387,8 @@ struct MultiDocumentView: View {
                     .keyboardShortcut("2", modifiers: [.command])
                 Button("") { paneMode = .split }
                     .keyboardShortcut("3", modifiers: [.command])
+                Button("") { toggleChat() }
+                    .keyboardShortcut("4", modifiers: [.command])
                 Button("") { showCommandPalette.toggle() }
                     .keyboardShortcut("k", modifiers: [.command])
             }
