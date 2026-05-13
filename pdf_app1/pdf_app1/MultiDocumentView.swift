@@ -966,6 +966,28 @@ struct MultiDocumentView: View {
                                     .frame(minWidth: 280, idealWidth: 320, maxWidth: 400)
                             }
                         }
+                        .overlay(alignment: .bottomTrailing) {
+                            if !isChatVisible, let vm = chatViewModel {
+                                Button(action: { toggleChat() }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "bubble.left.and.text.bubble.right")
+                                            .font(.body)
+                                        if vm.messages.count > 0 {
+                                            Text("\(vm.messages.count)")
+                                                .font(.caption)
+                                                .monospacedDigit()
+                                        }
+                                    }
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(.regularMaterial, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Show chat (⌘4)")
+                                .padding(12)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onChange(of: knowledgeGraph.nodeCount) { _, newCount in
