@@ -93,7 +93,7 @@ class DeepExtractionPipeline {
             let anchors = sourceAnchors(for: cluster.factIndices, from: allFacts, documentURL: documentURL)
             guard !anchors.isEmpty else { continue }
 
-            let existingNode = graph.allNodes.first { $0.label.lowercased() == cluster.label.lowercased() }
+            let existingNode = graph.node(matching: cluster.label)
             let conceptNodeID: UUID
 
             if var existing = existingNode {
@@ -125,7 +125,7 @@ class DeepExtractionPipeline {
                 let entityAnchors = sourceAnchors(for: entity.factIndices, from: allFacts, documentURL: documentURL)
                 guard !entityAnchors.isEmpty else { continue }
 
-                let existingEntity = graph.allNodes.first { $0.label.lowercased() == entity.label.lowercased() }
+                let existingEntity = graph.node(matching: entity.label)
 
                 if var existing = existingEntity {
                     existing.sourceAnchors.append(contentsOf: entityAnchors)
@@ -178,8 +178,8 @@ class DeepExtractionPipeline {
 
             var added = 0
             for rawEdge in rawEdges {
-                guard let sourceNode = graph.allNodes.first(where: { $0.label.lowercased() == rawEdge.sourceLabel.lowercased() }),
-                      let targetNode = graph.allNodes.first(where: { $0.label.lowercased() == rawEdge.targetLabel.lowercased() }) else {
+                guard let sourceNode = graph.node(matching: rawEdge.sourceLabel),
+                      let targetNode = graph.node(matching: rawEdge.targetLabel) else {
                     continue
                 }
 

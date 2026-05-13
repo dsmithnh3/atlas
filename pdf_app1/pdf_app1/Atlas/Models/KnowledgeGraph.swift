@@ -149,12 +149,15 @@ struct GraphEdge: Identifiable, Codable, Hashable {
 // storage on macOS 26.3. Same pattern as QuadTreeNode (commit c8cad91).
 @Observable
 nonisolated class KnowledgeGraph {
-    var nodes: [UUID: ConceptNode] = [:]
-    var edges: [UUID: GraphEdge] = [:]
+    private(set) var nodes: [UUID: ConceptNode] = [:]
+    private(set) var edges: [UUID: GraphEdge] = [:]
     var documentProcessingState: [URL: ProcessingState] = [:]
 
     // Adjacency list: nodeID -> set of edgeIDs
     private(set) var adjacency: [UUID: Set<UUID>] = [:]
+
+    // Lowercased-label → node ID. Kept in sync by insert/removeNode/updateNode/clear/merge.
+    private var labelIndex: [String: UUID] = [:]
 
     var nodeCount: Int { nodes.count }
     var edgeCount: Int { edges.count }
@@ -171,15 +174,22 @@ nonisolated class KnowledgeGraph {
     // MARK: - Node Operations
 
     func addNode(_ node: ConceptNode) {
+        insert(node)
+        log.info("[Graph] addNode: \"\(node.label)\" (total: \(self.nodes.count))")
+    }
+
+    private func insert(_ node: ConceptNode) {
         nodes[node.id] = node
         if adjacency[node.id] == nil {
             adjacency[node.id] = []
         }
-        log.info("[Graph] addNode: \"\(node.label)\" (total: \(self.nodes.count))")
+        labelIndex[node.label.lowercased()] = node.id
     }
 
     func removeNode(_ nodeID: UUID) {
-        nodes.removeValue(forKey: nodeID)
+        if let removed = nodes.removeValue(forKey: nodeID) {
+            labelIndex.removeValue(forKey: removed.label.lowercased())
+        }
         // Remove all connected edges
         if let edgeIDs = adjacency[nodeID] {
             for edgeID in edgeIDs {
@@ -194,11 +204,20 @@ nonisolated class KnowledgeGraph {
     }
 
     func updateNode(_ node: ConceptNode) {
+        if let old = nodes[node.id], old.label != node.label {
+            labelIndex.removeValue(forKey: old.label.lowercased())
+            labelIndex[node.label.lowercased()] = node.id
+        }
         nodes[node.id] = node
     }
 
     func node(for id: UUID) -> ConceptNode? {
         nodes[id]
+    }
+
+    func node(matching label: String) -> ConceptNode? {
+        guard let id = labelIndex[label.lowercased()] else { return nil }
+        return nodes[id]
     }
 
     // MARK: - Edge Operations
@@ -322,17 +341,17 @@ nonisolated class KnowledgeGraph {
         nodes.removeAll()
         edges.removeAll()
         adjacency.removeAll()
+        labelIndex.removeAll()
         documentProcessingState.removeAll()
         highlightColorCounter = 0
     }
 
     func merge(from other: KnowledgeGraph) {
-        for (id, node) in other.nodes {
-            nodes[id] = node
+        for node in other.nodes.values {
+            insert(node)
         }
-        for (id, edge) in other.edges {
+        for edge in other.edges.values {
             addEdge(edge)
-            _ = id // suppress warning
         }
         for (url, state) in other.documentProcessingState {
             documentProcessingState[url] = state

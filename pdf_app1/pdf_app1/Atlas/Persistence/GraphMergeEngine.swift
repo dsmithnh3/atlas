@@ -141,8 +141,8 @@ class GraphMergeEngine {
                 guard !seenPairs.contains(pairKey) else { continue }
                 seenPairs.insert(pairKey)
 
-                guard let sourceNode = newDocumentGraph.allNodes.first(where: { $0.label.lowercased() == raw.labelA.lowercased() }),
-                      let targetNode = projectGraph.allNodes.first(where: { $0.label.lowercased() == raw.labelB.lowercased() }) else {
+                guard let sourceNode = newDocumentGraph.node(matching: raw.labelA),
+                      let targetNode = projectGraph.node(matching: raw.labelB) else {
                     continue
                 }
 

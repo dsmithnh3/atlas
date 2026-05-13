@@ -301,7 +301,7 @@ class ExtractionPipeline {
             let effectiveHierarchyLevel = rawConcept.hierarchyLevel ?? 1
 
             // Check for existing concept node with same label
-            let existingNode = graph.allNodes.first { $0.label.lowercased() == rawConcept.label.lowercased() }
+            let existingNode = graph.node(matching: rawConcept.label)
             let conceptNodeID: UUID
 
             if var existing = existingNode {
@@ -332,7 +332,7 @@ class ExtractionPipeline {
 
             // Create subtopicOf edge if parent theme specified
             if let parentLabel = rawConcept.subtopicOf,
-               let parentNode = graph.allNodes.first(where: { $0.label.lowercased() == parentLabel.lowercased() }) {
+               let parentNode = graph.node(matching: parentLabel) {
                 let alreadyLinked = graph.allEdges.contains {
                     $0.sourceNodeID == conceptNodeID && $0.targetNodeID == parentNode.id && $0.type == .subtopicOf
                 }
@@ -370,7 +370,7 @@ class ExtractionPipeline {
                 let entityType = ConceptType(rawValue: rawEntity.type) ?? .definition
 
                 // Check if entity already exists
-                let existingEntity = graph.allNodes.first { $0.label.lowercased() == rawEntity.label.lowercased() }
+                let existingEntity = graph.node(matching: rawEntity.label)
 
                 if var existing = existingEntity {
                     existing.sourceAnchors.append(entityAnchor!)
@@ -421,8 +421,8 @@ class ExtractionPipeline {
 
                 var added = 0
                 for rawEdge in rawEdges {
-                    guard let sourceNode = graph.allNodes.first(where: { $0.label.lowercased() == rawEdge.sourceLabel.lowercased() }),
-                          let targetNode = graph.allNodes.first(where: { $0.label.lowercased() == rawEdge.targetLabel.lowercased() }) else {
+                    guard let sourceNode = graph.node(matching: rawEdge.sourceLabel),
+                          let targetNode = graph.node(matching: rawEdge.targetLabel) else {
                         log.debug("[Step 6] Edge skipped (node not found): \"\(rawEdge.sourceLabel)\" -> \"\(rawEdge.targetLabel)\"")
                         continue
                     }
