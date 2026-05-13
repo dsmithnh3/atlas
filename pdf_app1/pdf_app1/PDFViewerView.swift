@@ -74,9 +74,6 @@ final class BookmarkManager: ObservableObject {
  final class HighlightingPDFView: PDFView {
      var onMouseUp: (() -> Void)?
      var menuProvider: ((NSEvent) -> NSMenu?)?
-     private var pageCache: [Int: NSImage] = [:]
-     private let maxCacheSize = 10
-     private var pageChangeDebounceTimer: Timer?
 
      override func viewDidMoveToWindow() {
          super.viewDidMoveToWindow()
@@ -84,81 +81,12 @@ final class BookmarkManager: ObservableObject {
              setupPerformanceOptimizations()
          }
      }
-     
+
      private func setupPerformanceOptimizations() {
          self.displayMode = .singlePageContinuous
          self.displayDirection = .vertical
          self.autoScales = true
          self.layer?.drawsAsynchronously = true
-         
-         NotificationCenter.default.addObserver(
-             self,
-             selector: #selector(pageChanged),
-             name: NSView.boundsDidChangeNotification,
-             object: self.enclosingScrollView?.contentView
-         )
-     }
-     
-     @objc private func pageChanged() {
-         pageChangeDebounceTimer?.invalidate()
-         pageChangeDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
-             guard let self,
-                   let currentPage = self.currentPage,
-                   let document = self.document else { return }
-             let currentIndex = document.index(for: currentPage)
-             self.preloadPages(around: currentIndex, in: document)
-         }
-     }
-     
-     private func preloadPages(around currentIndex: Int, in document: PDFDocument) {
-         // All PDFKit and pageCache access must happen on the main thread
-         let preloadRange = max(0, currentIndex - 1)...min(document.pageCount - 1, currentIndex + 1)
-
-         for pageIndex in preloadRange {
-             if pageCache[pageIndex] == nil {
-                 cachePageThumbnail(at: pageIndex, in: document)
-             }
-         }
-     }
-
-     private func cachePageThumbnail(at index: Int, in document: PDFDocument) {
-         guard let page = document.page(at: index) else { return }
-
-         let pageRect = page.bounds(for: .mediaBox)
-         let scale: CGFloat = 0.2
-         let imageSize = NSSize(width: pageRect.width * scale, height: pageRect.height * scale)
-
-         guard let rep = NSBitmapImageRep(
-             bitmapDataPlanes: nil,
-             pixelsWide: Int(imageSize.width),
-             pixelsHigh: Int(imageSize.height),
-             bitsPerSample: 8,
-             samplesPerPixel: 4,
-             hasAlpha: true,
-             isPlanar: false,
-             colorSpaceName: .deviceRGB,
-             bytesPerRow: 0,
-             bitsPerPixel: 0
-         ) else { return }
-
-         let ctx = NSGraphicsContext(bitmapImageRep: rep)
-         NSGraphicsContext.saveGraphicsState()
-         NSGraphicsContext.current = ctx
-         ctx?.cgContext.scaleBy(x: scale, y: scale)
-         page.draw(with: .mediaBox, to: ctx!.cgContext)
-         NSGraphicsContext.restoreGraphicsState()
-
-         let image = NSImage(size: imageSize)
-         image.addRepresentation(rep)
-
-         pageCache[index] = image
-
-         if pageCache.count > maxCacheSize {
-             let sortedKeys = pageCache.keys.sorted()
-             let middleIndex = sortedKeys.count / 2
-             let keysToRemove = sortedKeys.filter { abs($0 - index) > middleIndex }
-             keysToRemove.forEach { pageCache.removeValue(forKey: $0) }
-         }
      }
 
      override func keyDown(with event: NSEvent) {
@@ -182,10 +110,6 @@ final class BookmarkManager: ObservableObject {
              return menu
          }
          return super.menu(for: event)
-     }
-     
-     deinit {
-         NotificationCenter.default.removeObserver(self)
      }
  }
 
