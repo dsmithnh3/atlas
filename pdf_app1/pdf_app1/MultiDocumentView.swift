@@ -943,22 +943,29 @@ struct MultiDocumentView: View {
                             documentManager.openDocuments(urls, projectID: projectsManager.selectedProjectID)
                         }
                     } mapContent: {
-                        KnowledgeMapView(
-                            graph: knowledgeGraph,
-                            zoomLevel: $mapZoomLevel,
-                            documentURL: document.url,
-                            onNavigateToPage: { pageIndex, boundingBox, textSnippet in
-                                var info: [String: Any] = [:]
-                                if let bb = boundingBox { info["boundingBox"] = bb }
-                                if let ts = textSnippet, !ts.isEmpty { info["textSnippet"] = ts }
-                                NotificationCenter.default.post(
-                                    name: NSNotification.Name("NavigateToPage"),
-                                    object: pageIndex,
-                                    userInfo: info.isEmpty ? nil : info
-                                )
-                            },
-                            activeNodeID: syncManager.activeNodeID
-                        )
+                        HStack(spacing: 0) {
+                            KnowledgeMapView(
+                                graph: knowledgeGraph,
+                                zoomLevel: $mapZoomLevel,
+                                documentURL: document.url,
+                                onNavigateToPage: { pageIndex, boundingBox, textSnippet in
+                                    var info: [String: Any] = [:]
+                                    if let bb = boundingBox { info["boundingBox"] = bb }
+                                    if let ts = textSnippet, !ts.isEmpty { info["textSnippet"] = ts }
+                                    NotificationCenter.default.post(
+                                        name: NSNotification.Name("NavigateToPage"),
+                                        object: pageIndex,
+                                        userInfo: info.isEmpty ? nil : info
+                                    )
+                                },
+                                activeNodeID: syncManager.activeNodeID
+                            )
+                            if isChatVisible, let vm = chatViewModel {
+                                Divider()
+                                ChatPanelView(viewModel: vm)
+                                    .frame(minWidth: 280, idealWidth: 320, maxWidth: 400)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onChange(of: knowledgeGraph.nodeCount) { _, newCount in
