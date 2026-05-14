@@ -143,6 +143,12 @@ class ExtractionPipeline {
         statusMessage = "Generating document summary..."
         await Self.appendDocumentSummary(graph: graph, documentURL: documentURL, backend: backend)
 
+        // Ensure the graph has navigable hierarchy. No-op when the LLM
+        // produced a usable subtopicOf forest; synthesizes themes +
+        // subtopicOf edges from graph topology otherwise.
+        statusMessage = "Organizing concepts..."
+        HierarchySynthesis.synthesize(graph: graph)
+
         isProcessing = false
         statusMessage = "Done — \(graph.nodeCount) concepts extracted"
         graph.documentProcessingState[documentURL] = .complete

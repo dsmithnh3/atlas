@@ -99,15 +99,31 @@ final class TreeLayoutSeederTests: XCTestCase {
             ]
         )
 
-        // Verify R1's children don't overlap R2 (or its child)
         let seeder = TreeLayoutSeeder(canvasSize: CGSize(width: 2000, height: 800), siblingSpacing: 200)
         let positions = seeder.seed(forest: forest) { id in
             id == r1.id || id == r2.id ? 0 : 1
         }
 
-        let r1ChildrenMaxX = [r1c1, r1c2, r1c3, r1c4].compactMap { positions[$0.id]?.x }.max()!
+        // R1's subtree gets ~4× the horizontal space of R2's subtree.
+        // Check that R1's children remain clustered near R1 (not overlapping
+        // R2's territory), regardless of which root sorts first by UUID.
+        let r1X = positions[r1.id]!.x
         let r2X = positions[r2.id]!.x
-        XCTAssertLessThan(r1ChildrenMaxX, r2X, "R1's rightmost child sits left of R2")
+        let r1ChildXs = [r1c1, r1c2, r1c3, r1c4].compactMap { positions[$0.id]?.x }
+        let r1ChildSpread = r1ChildXs.max()! - r1ChildXs.min()!
+        let r2c1X = positions[r2c1.id]!.x
+
+        XCTAssertGreaterThan(r1ChildSpread, 400, "R1's 4 children span >2 sibling-spacings")
+        XCTAssertEqual(r2c1X, r2X, accuracy: 1, "R2's single child is centered directly under R2")
+
+        // R1's subtree and R2's subtree don't overlap horizontally —
+        // each root's allocated band is proportional to its subtree width.
+        let r1SubtreeMaxX = max(r1X, r1ChildXs.max()!)
+        let r1SubtreeMinX = min(r1X, r1ChildXs.min()!)
+        let r2SubtreeMaxX = max(r2X, r2c1X)
+        let r2SubtreeMinX = min(r2X, r2c1X)
+        let nonOverlapping = r1SubtreeMaxX < r2SubtreeMinX || r2SubtreeMaxX < r1SubtreeMinX
+        XCTAssertTrue(nonOverlapping, "R1 and R2 subtrees occupy disjoint horizontal bands")
     }
 
     func testSeed_depthFromOverride_orphanedSubconceptStillBandsAtItsLevel() {
