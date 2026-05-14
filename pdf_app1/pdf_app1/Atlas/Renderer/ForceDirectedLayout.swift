@@ -54,10 +54,28 @@ class ForceDirectedLayout {
             height: max(canvasSize.height, Double(nodes.count) * 90)
         )
 
-        // Group by hierarchy: concept nodes are their own group, entities group under parent
+        // Build the canonical-parent forest from concept nodes + subtopicOf
+        // edges. If the data has hierarchy (any subtopicOf), seed positions
+        // as horizontal bands by `hierarchyLevel`. Otherwise the seeder is
+        // skipped and we fall back to the grid-of-singletons placement.
+        let conceptNodes = nodes.filter { $0.level == .concept }
+        let forest = HierarchyForest.build(conceptNodes: conceptNodes, edges: edges)
+        let useTreeSeeding = !forest.isDegenerate
+
+        let hierarchyLevelByID: [UUID: Int] = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0.hierarchyLevel) })
+        let seedPositions: [UUID: CGPoint] = useTreeSeeding
+            ? TreeLayoutSeeder(canvasSize: virtualSize).seed(forest: forest) { hierarchyLevelByID[$0] ?? 0 }
+            : [:]
+
+        // Concept nodes share a group with their subtree root (so FDL's
+        // group attraction pulls a subtree together as a cluster).
+        // Entities group under their parent concept (unchanged behavior).
         func groupKey(for node: ConceptNode) -> String {
             if node.level == .entity, let parentID = node.parentConceptID {
                 return parentID.uuidString
+            }
+            if useTreeSeeding {
+                return forest.root(of: node.id).uuidString
             }
             return node.id.uuidString
         }
@@ -65,16 +83,39 @@ class ForceDirectedLayout {
         let groups = Dictionary(grouping: nodes, by: { groupKey(for: $0) })
         let groupNames = groups.keys.sorted()
         var groupCenters: [String: CGPoint] = [:]
-        let cols = max(Int(ceil(sqrt(Double(groupNames.count)))), 2)
-        let cellW = virtualSize.width / Double(cols + 1)
-        let cellH = virtualSize.height / Double(max(groupNames.count / cols + 1, 2))
-        for (i, name) in groupNames.enumerated() {
-            let col = i % cols
-            let row = i / cols
-            groupCenters[name] = CGPoint(
-                x: cellW * (Double(col) + 1),
-                y: cellH * (Double(row) + 1)
-            )
+
+        // Tree-seeded groups: center on the seeded subtree-root position.
+        // Entity groups + ungrouped concepts: fall through to grid below.
+        if useTreeSeeding {
+            for (key, members) in groups {
+                if let rootUUID = UUID(uuidString: key), let rootPos = seedPositions[rootUUID] {
+                    groupCenters[key] = rootPos
+                } else {
+                    // Entity group: average of any seeded member positions
+                    let seeded = members.compactMap { seedPositions[$0.id] }
+                    if !seeded.isEmpty {
+                        let avgX = seeded.map(\.x).reduce(0, +) / Double(seeded.count)
+                        let avgY = seeded.map(\.y).reduce(0, +) / Double(seeded.count)
+                        groupCenters[key] = CGPoint(x: avgX, y: avgY)
+                    }
+                }
+            }
+        }
+
+        // Grid fallback for any group still missing a center (degenerate
+        // forest, entity-only groups whose parent wasn't seeded, etc.)
+        if groupCenters.count < groupNames.count {
+            let cols = max(Int(ceil(sqrt(Double(groupNames.count)))), 2)
+            let cellW = virtualSize.width / Double(cols + 1)
+            let cellH = virtualSize.height / Double(max(groupNames.count / cols + 1, 2))
+            for (i, name) in groupNames.enumerated() where groupCenters[name] == nil {
+                let col = i % cols
+                let row = i / cols
+                groupCenters[name] = CGPoint(
+                    x: cellW * (Double(col) + 1),
+                    y: cellH * (Double(row) + 1)
+                )
+            }
         }
 
         // Initialize positions
@@ -85,8 +126,13 @@ class ForceDirectedLayout {
                     positions[node.id] = NodePosition(x: anchor.x, y: anchor.y, isFixed: true, group: gk)
                 } else if let existing = node.position {
                     positions[node.id] = NodePosition(x: existing.x, y: existing.y, group: gk)
+                } else if let seed = seedPositions[node.id] {
+                    // Tree-seeded concept: small jitter so FDL has a gradient
+                    let jitterX = Double.random(in: -20...20)
+                    let jitterY = Double.random(in: -20...20)
+                    positions[node.id] = NodePosition(x: seed.x + jitterX, y: seed.y + jitterY, group: gk)
                 } else {
-                    // Place near group center with jitter
+                    // Group-center placement (entities, or no-hierarchy fallback)
                     let center = groupCenters[gk] ?? CGPoint(x: virtualSize.width / 2, y: virtualSize.height / 2)
                     let jitterX = Double.random(in: -80...80)
                     let jitterY = Double.random(in: -80...80)
