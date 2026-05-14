@@ -291,7 +291,7 @@ class ExtractionPipeline {
             }
             anchored += 1
 
-            let conceptType = ConceptType(rawValue: rawConcept.type) ?? .concept
+            let conceptType = rawConcept.type.asConceptType()
 
             // Top-level items are always concept-level. Only nested items (inner loop) are entities.
             // This prevents orphan entities when the LLM returns a flat list.
@@ -363,7 +363,7 @@ class ExtractionPipeline {
                 }
                 anchored += 1
 
-                let entityType = ConceptType(rawValue: rawEntity.type) ?? .definition
+                let entityType = rawEntity.type.asConceptType(default: .definition)
 
                 // Check if entity already exists
                 let existingEntity = graph.node(matching: rawEntity.label)
@@ -430,7 +430,7 @@ class ExtractionPipeline {
                     }
                     guard !exists else { continue }
 
-                    let edgeType = EdgeType(rawValue: rawEdge.type) ?? .sameTopic
+                    let edgeType = rawEdge.type.asEdgeType()
                     // Don't create duplicate containsEntity edges from LLM suggestions
                     guard edgeType != .containsEntity else { continue }
                     let edge = GraphEdge(

@@ -104,7 +104,7 @@ class DeepExtractionPipeline {
                 graph.updateNode(existing)
                 conceptNodeID = existing.id
             } else {
-                let conceptType = ConceptType(rawValue: cluster.type) ?? .concept
+                let conceptType = cluster.type.asConceptType()
                 let colorIndex = graph.nextHighlightColorIndex()
                 let node = ConceptNode(
                     label: cluster.label,
@@ -134,7 +134,7 @@ class DeepExtractionPipeline {
                     }
                     graph.updateNode(existing)
                 } else {
-                    let entityType = ConceptType(rawValue: entity.type) ?? .definition
+                    let entityType = entity.type.asConceptType(default: .definition)
                     let parentColor = graph.node(for: conceptNodeID)?.highlightColorIndex
                     let entityNode = ConceptNode(
                         label: entity.label,
@@ -189,7 +189,7 @@ class DeepExtractionPipeline {
                 }
                 guard !exists else { continue }
 
-                let edgeType = EdgeType(rawValue: rawEdge.type) ?? .sameTopic
+                let edgeType = rawEdge.type.asEdgeType()
                 guard edgeType != .containsEntity else { continue }
                 let edge = GraphEdge(
                     sourceNodeID: sourceNode.id,
