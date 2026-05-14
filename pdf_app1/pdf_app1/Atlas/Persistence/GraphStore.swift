@@ -57,15 +57,17 @@ class GraphStore {
         return (mtime, size)
     }
 
-    func save(_ graph: KnowledgeGraph, for documentURL: URL) {
+    // Writes already-encoded graph bytes to disk. Used by the debounced
+    // save path so the work item can run on a background queue without
+    // touching `KnowledgeGraph` state (which is not thread-safe).
+    private func writeStoredGraph(payload: Data, nodeCount: Int, edgeCount: Int, for documentURL: URL) {
         do {
-            let payload = try graph.encode()
             let (mtime, size) = currentMtimeAndSize(for: documentURL)
             let stored = StoredGraph(mtime: mtime, size: size, payload: payload)
             let data = try JSONEncoder().encode(stored)
             let fileURL = graphFileURL(for: documentURL)
             try data.write(to: fileURL, options: .atomic)
-            log.info("[GraphStore] Saved graph for \(documentURL.lastPathComponent): \(graph.nodeCount) nodes, \(graph.edgeCount) edges (\(data.count) bytes)")
+            log.info("[GraphStore] Saved graph for \(documentURL.lastPathComponent): \(nodeCount) nodes, \(edgeCount) edges (\(data.count) bytes)")
         } catch {
             log.error("[GraphStore] Failed to save graph for \(documentURL.lastPathComponent): \(error)")
         }
@@ -144,9 +146,29 @@ class GraphStore {
     // MARK: - Debounced Save
 
     func scheduleSave(_ graph: KnowledgeGraph, for documentURL: URL) {
+        // Encode synchronously on the caller's thread so the work item
+        // only captures a value-type payload (Data). Previously the work
+        // item held the KnowledgeGraph reference and called encode() on
+        // the background queue, racing against ongoing mutations to
+        // nodes/edges from the actor that owns the graph.
+        let payload: Data
+        let nodeCount = graph.nodeCount
+        let edgeCount = graph.edgeCount
+        do {
+            payload = try graph.encode()
+        } catch {
+            log.error("[GraphStore] Failed to encode graph for \(documentURL.lastPathComponent): \(error)")
+            return
+        }
+
         saveWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
-            self?.save(graph, for: documentURL)
+            self?.writeStoredGraph(
+                payload: payload,
+                nodeCount: nodeCount,
+                edgeCount: edgeCount,
+                for: documentURL
+            )
         }
         saveWorkItem = workItem
         DispatchQueue.global(qos: .utility).asyncAfter(
