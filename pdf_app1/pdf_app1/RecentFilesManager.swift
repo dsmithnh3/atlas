@@ -47,7 +47,6 @@ class RecentFilesManager: ObservableObject {
     private let userDefaults: UserDefaults
     private let bookmarker: RecentFilesBookmarking
     let fileCheckQueue = DispatchQueue(label: "file.check", qos: .utility)
-    private var fileCheckWorkItem: DispatchWorkItem?
     private var lastFileCheckTime: Date = Date.distantPast
     private let fileCheckThrottleInterval: TimeInterval = 5.0
 

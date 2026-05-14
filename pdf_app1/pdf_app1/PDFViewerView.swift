@@ -128,7 +128,7 @@ struct PDFViewerView: View {
     @State private var pdfView = HighlightingPDFView()
     @State private var currentPage: PDFPage?
     @State private var isSaving = false
-    @State private var autoSaveWorkItem: DispatchWorkItem?
+    @State private var autoSaveDebouncer = Debouncer(delay: 1.0)
     @State private var showingSearch = false
     @State private var isFullscreen = false
     @State private var sidebarPanel: SidebarPanel?
@@ -561,13 +561,9 @@ struct PDFViewerView: View {
 
     private func scheduleAutoSave() {
         guard let url = pdfURL else { return }
-        autoSaveWorkItem?.cancel()
-
-        let item = DispatchWorkItem {
+        autoSaveDebouncer.schedule {
             savePDF(to: url, showNotifications: false)
         }
-        autoSaveWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
     }
     
     private func addTextAnnotation(at point: CGPoint, text: String) {

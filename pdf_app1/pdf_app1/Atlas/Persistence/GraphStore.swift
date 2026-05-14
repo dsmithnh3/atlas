@@ -15,8 +15,7 @@ class GraphStore {
     static let shared = GraphStore()
 
     private let fileManager = FileManager.default
-    private var saveWorkItem: DispatchWorkItem?
-    private let saveDebounceInterval: TimeInterval = 1.0
+    private let saveDebouncer = Debouncer(delay: 1.0, queue: .global(qos: .utility))
 
     private var graphsDirectory: URL {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -158,8 +157,7 @@ class GraphStore {
             return
         }
 
-        saveWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
+        saveDebouncer.schedule { [weak self] in
             self?.writeStoredGraph(
                 payload: payload,
                 nodeCount: nodeCount,
@@ -167,20 +165,13 @@ class GraphStore {
                 for: documentURL
             )
         }
-        saveWorkItem = workItem
-        DispatchQueue.global(qos: .utility).asyncAfter(
-            deadline: .now() + saveDebounceInterval,
-            execute: workItem
-        )
     }
 
     // MARK: - Flush
 
     /// Immediately executes any pending debounced save. Call on app termination.
     func flushPendingSave() {
-        saveWorkItem?.perform()
-        saveWorkItem?.cancel()
-        saveWorkItem = nil
+        saveDebouncer.flush()
     }
 
     // MARK: - Delete
