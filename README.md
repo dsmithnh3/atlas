@@ -163,7 +163,7 @@ pdf_app1/pdf_app1/
       UnifiedSearchManager.swift  Context-aware search dispatcher
       ConceptDetailPopover.swift  Node detail: summary, sources, edges
       FirstRunView.swift          Onboarding experience
-      MapToolbar.swift            Map pane toolbar (zoom, filter, recenter, export)
+      MapToolbar.swift            Map pane toolbar (zoom, filter, export)
       MergeProposalView.swift     Accept/reject concept merge proposals (bulk accept)
       ProjectCorrelationSidebar.swift  Project sidebar with correlation stats
       PDFToolbarBridge.swift      Observable state bridge: PDF viewer publishes toolbar state/actions for the sidebar to render

@@ -53,18 +53,6 @@ class MapInteraction {
         viewOffset = .zero
     }
 
-    /// Center the viewport on the graph content without changing zoom level.
-    func recenter(layout: ForceDirectedLayout, canvasSize: CGSize) {
-        guard !layout.positions.isEmpty else { return }
-        let positions = layout.positions.values
-        let midX = ((positions.map { $0.x }.min() ?? 0) + (positions.map { $0.x }.max() ?? 0)) / 2
-        let midY = ((positions.map { $0.y }.min() ?? 0) + (positions.map { $0.y }.max() ?? 0)) / 2
-        viewOffset = CGPoint(
-            x: canvasSize.width / 2 - midX * viewScale,
-            y: canvasSize.height / 2 - midY * viewScale
-        )
-    }
-
     // MARK: - Pan
 
     func handleDragStart(at location: CGPoint, layout: ForceDirectedLayout, graph: KnowledgeGraph) {
@@ -163,17 +151,19 @@ class MapInteraction {
     // MARK: - Fit to Content
 
     func fitToContent(layout: ForceDirectedLayout, canvasSize: CGSize) {
-        guard !layout.positions.isEmpty, !isDragging else { return }
+        guard !isDragging, let first = layout.positions.values.first else { return }
 
-        let positions = layout.positions.values
-        let minX = positions.map { $0.x }.min() ?? 0
-        let maxX = positions.map { $0.x }.max() ?? canvasSize.width
-        let minY = positions.map { $0.y }.min() ?? 0
-        let maxY = positions.map { $0.y }.max() ?? canvasSize.height
+        var minX = first.x, maxX = first.x
+        var minY = first.y, maxY = first.y
+        for pos in layout.positions.values.dropFirst() {
+            if pos.x < minX { minX = pos.x }
+            if pos.x > maxX { maxX = pos.x }
+            if pos.y < minY { minY = pos.y }
+            if pos.y > maxY { maxY = pos.y }
+        }
 
         let contentWidth = maxX - minX + 100
         let contentHeight = maxY - minY + 100
-
         let scaleX = canvasSize.width / contentWidth
         let scaleY = canvasSize.height / contentHeight
         viewScale = min(scaleX, scaleY, 2.0)

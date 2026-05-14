@@ -285,12 +285,6 @@ struct KnowledgeMapView: View {
                 interaction.fitToContent(layout: layout, canvasSize: canvasSize)
             }) { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                 .help("Fit All")
-            Button(action: {
-                interaction.recenter(layout: layout, canvasSize: canvasSize)
-            }) {
-                Image(systemName: "location.fill")
-            }
-            .help("Recenter")
 
             Divider().frame(width: 16)
             Button(action: {
