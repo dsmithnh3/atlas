@@ -11,6 +11,11 @@ import os.log
 
 private let log = AtlasLogger.ui
 
+private struct LayoutKey: Equatable {
+    let nodeCount: Int
+    let zoomLevel: SemanticZoomLevel
+}
+
 struct KnowledgeMapView: View {
     var graph: KnowledgeGraph
     @Binding var zoomLevel: SemanticZoomLevel
@@ -151,12 +156,20 @@ struct KnowledgeMapView: View {
                         .padding(8)
                 }
             }
-            .onChange(of: graph.nodeCount) { _, newCount in
-                log.info("[MapView] graph.nodeCount changed to \(newCount)")
-                if newCount > 0 && !interaction.isDragging {
+            // Single onChange keyed on (nodeCount, zoomLevel) so a simultaneous
+            // change of both — e.g. user taps zoom while extraction adds
+            // nodes — triggers one layout recompute, not two back-to-back.
+            // `fitToContent` only runs when zoom actually changed (matches
+            // the prior split-handler behavior).
+            .onChange(of: LayoutKey(nodeCount: graph.nodeCount, zoomLevel: zoomLevel)) { oldKey, newKey in
+                log.info("[MapView] layout key changed: nodeCount=\(newKey.nodeCount), zoomLevel=\(String(describing: newKey.zoomLevel))")
+                if newKey.nodeCount > 0 && !interaction.isDragging {
                     recomputeLayout(canvasSize: geometry.size)
+                    if oldKey.zoomLevel != newKey.zoomLevel {
+                        interaction.fitToContent(layout: layout, canvasSize: geometry.size)
+                    }
                 }
-                if !debouncedSearchQuery.isEmpty {
+                if oldKey.nodeCount != newKey.nodeCount && !debouncedSearchQuery.isEmpty {
                     rerunSearchFilter()
                 }
             }
@@ -171,12 +184,6 @@ struct KnowledgeMapView: View {
             }
             .onChange(of: debouncedSearchQuery) { _, _ in
                 rerunSearchFilter()
-            }
-            .onChange(of: zoomLevel) { _, _ in
-                if !interaction.isDragging {
-                    recomputeLayout(canvasSize: geometry.size)
-                    interaction.fitToContent(layout: layout, canvasSize: geometry.size)
-                }
             }
             .onChange(of: graph.expansionGeneration) { _, _ in
                 withAnimation(.easeInOut(duration: 0.3)) {
