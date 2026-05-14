@@ -70,9 +70,6 @@ class TextExtractor {
         let lines = pageText.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
 
         for line in lines {
-            guard let selection = page.selection(for: NSRange(location: 0, length: (pageText as NSString).length)) else { continue }
-
-            // Find this line's selection within the page
             if let lineSelection = findSelection(for: line, in: page) {
                 let bounds = lineSelection.bounds(for: page)
                 guard bounds.width > 0 && bounds.height > 0 else { continue }
@@ -84,7 +81,6 @@ class TextExtractor {
                     blockType: .unknown // LayoutAnalyzer classifies later
                 )
                 blocks.append(block)
-                _ = selection // suppress warning
             }
         }
 
