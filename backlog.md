@@ -52,6 +52,11 @@ Durable "someday/maybe" items — distinct from session-level Unresolved (which 
   - Flagged but not pulled forward: HighlightingPDFView pageCache machinery (~70 lines populated-but-never-read) is audit issue #31, slotted for PR-C cleanup batch.
 -->
 
+<!-- Done 2026-05-14 (late evening):
+  - /simplify Tier 3 cheap-dedup batch — 2 commits direct to main (`8e48cfc..f54af50`, not yet pushed): #20 extracted `String.sha256HexPrefix16` helper in new `Atlas/Utils/String+Hash.swift`, removed the SHA256→hex-16 dup at GraphStore.graphFileURL + AIServiceManager.cacheKey (CryptoKit imports dropped from both); #26 deleted the wasted `page.selection(for: NSRange(fullText))` inside `TextExtractor.extractBlocks`'s per-line loop — the `_ = selection // suppress warning` line was a band-aid pointing at exactly this dead work. Reframe during analysis: the call ran once per line (not once per page as the audit implied), so the impact is a real per-extraction perf win on text-heavy pages, not just dead-code removal.
+  - Build green at both steps; no behavior change for #20 (file names + cache keys are byte-identical to before), no behavior change for #26 (the filtering the page-wide selection appeared to provide was already covered by earlier guards + `findSelection`'s own nil-handling).
+-->
+
 <!-- Done 2026-05-14 (evening):
   - /simplify Tier 2 cheap-sweep batch landed direct to main as 5 commits (`6447ba9..940e414`, pushed): #7 typed Notification.Name + dead `OpenDocuments` observer deletion; #12 `URL.deletingPathExtension()` over lowercase-only string strip; #14 guard-let over force-unwrap in ExtractionPipeline; #15 UserDefaults keys (`atlas.ai.backendType/model`, `atlas.ollama.baseURL`) into AppConstants; #6 new `Atlas/Annotations/PDFAnnotation+Kind.swift` shim that re-prefixes PDFKit's read/write slash asymmetry so all kind comparisons unify on `PDFAnnotationSubtype` constants. Build green at each step.
   - Phase-1 "deep why" pass on each item before code. Notable findings: `OpenDocuments` was orphan listener with zero posters (codebase + plists + no AppDelegate URL hook); audit's claim about `PDFSearchManager` raw keys was wrong (already encapsulated as private let); #6's "use an enum" was the wrong shape because PDFKit's read/write API uses two different string forms — a thin getter shim was the right size of fix.

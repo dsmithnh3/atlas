@@ -21,7 +21,9 @@ Read-only review of `Atlas/` source (57 Swift files, ~13.4k lines) across three 
 | 2 | #13 `resolveOverlaps` O(n²) | open | — | Renderer perf, profile-first (same reasoning as Tier 1 #3). |
 | 2 | #14 force-unwraps in extraction | ✅ done | `96924d4` | `guard let` over `if nil { continue }` + `!`. No behavior change. |
 | 2 | #15 UserDefaults raw keys | ✅ done | `5e1bf32` | 3 keys consolidated into existing `AppConstants` UserDefaults block. Audit's `PDFSearchManager` claim was wrong — that file already encapsulates its key. |
+| 3 | #20 SHA256→hex-16 helper duplicated | ✅ done | `8e48cfc` | New `String.sha256HexPrefix16` extension in `Atlas/Utils/String+Hash.swift`; 2 call sites collapsed; `CryptoKit` imports dropped from both. |
 | 3 | #24 `addNode` `.info` log per node | partial | `be9814b` | `merge(from:)` is now silent (routed through a private `insert(_:)`). Extraction/decode paths still emit `.info` per node. Demoting globally was not approved this session. |
+| 3 | #26 `TextExtractor.extractBlocks` discards `selection(for:)` | ✅ done | `f54af50` | Reframed during analysis: the wasted call ran once *per line*, not once per page — paying PDFKit's glyph-coverage cost N times. `_ = selection` suppression was a band-aid pointing at exactly this dead work. Net: real perf win on per-page text extraction, not just dead-code removal. |
 | 3 | All other Tier-3 items | open | — | |
 
 Also closed as side effects of #2 (not in this survey but flagged by an upstream agent before consolidation): `KnowledgeGraph.merge(from:)` previously bypassed `addNode` and wrote to `nodes[id]` directly — the same `be9814b` commit fixes that by routing through the new private `insert(_:)` helper.
