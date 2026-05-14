@@ -536,15 +536,15 @@ struct PDFViewerView: View {
             return
         }
         
-        defer {
-            url.stopAccessingSecurityScopedResource()
-        }
-        
-        // Perform save on background queue
+        // Perform save on background queue. Scope is released inside the
+        // completion path — a `defer` at function scope would fire on the
+        // synchronous return below, before the background write actually
+        // runs, revoking scope mid-write.
         DispatchQueue.global(qos: .userInitiated).async {
             let success = self.pdfDocument.write(to: url)
-            
+
             DispatchQueue.main.async {
+                url.stopAccessingSecurityScopedResource()
                 self.isSaving = false
                 if success {
                     if showNotifications {
