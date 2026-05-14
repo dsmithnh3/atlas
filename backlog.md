@@ -52,6 +52,12 @@ Durable "someday/maybe" items — distinct from session-level Unresolved (which 
   - Flagged but not pulled forward: HighlightingPDFView pageCache machinery (~70 lines populated-but-never-read) is audit issue #31, slotted for PR-C cleanup batch.
 -->
 
+<!-- Done 2026-05-14 (evening):
+  - /simplify Tier 2 cheap-sweep batch landed direct to main as 5 commits (`6447ba9..940e414`, not yet pushed): #7 typed Notification.Name + dead `OpenDocuments` observer deletion; #12 `URL.deletingPathExtension()` over lowercase-only string strip; #14 guard-let over force-unwrap in ExtractionPipeline; #15 UserDefaults keys (`atlas.ai.backendType/model`, `atlas.ollama.baseURL`) into AppConstants; #6 new `Atlas/Annotations/PDFAnnotation+Kind.swift` shim that re-prefixes PDFKit's read/write slash asymmetry so all kind comparisons unify on `PDFAnnotationSubtype` constants. Build green at each step.
+  - Phase-1 "deep why" pass on each item before code. Notable findings: `OpenDocuments` was orphan listener with zero posters (codebase + plists + no AppDelegate URL hook); audit's claim about `PDFSearchManager` raw keys was wrong (already encapsulated as private let); #6's "use an enum" was the wrong shape because PDFKit's read/write API uses two different string forms — a thin getter shim was the right size of fix.
+  - Open Tier 2 items: #9 (`GraphStore.scheduleSave` race + retention) and #10 (TOCTOU on document open) are latent bugs that need a decision doc, deferred to a separate track. #8, #11, #13 held pending profile data (same reasoning as Tier 1 #3).
+-->
+
 <!-- Done 2026-05-14 (late afternoon):
   - Full-codebase /simplify survey across 57 Swift files / ~13.4k lines. Three parallel agents (reuse / quality / efficiency); aggregated to 30 findings in 3 tiers at `audits/2026-05-14_simplify-survey.md`.
   - Tier 1 #1 (AI backend dedup, commit `058936e`): Discovered 5 real drifts via deep-dive analysis (most consequential: Claude's `temperature` knob was unset, defaulting to ~1.0 vs OpenAI/Gemini's 0.1 — silent quality drift). Drafted `audits/2026-05-14_backend-drift-decisions.md` with user sign-off (D2 overrode my recommendation: throw errors, don't surface garbled text). Applied 7 surgical reconciliation edits, then extracted `LLMBackend` protocol with default implementations of all 6 public methods + `LLMResponseParser` enum. Each vendor backend now only implements `transport(prompt:)` + identity. Net Backends/ folder: 593 → 391 lines.

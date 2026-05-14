@@ -11,7 +11,16 @@ Read-only review of `Atlas/` source (57 Swift files, ~13.4k lines) across three 
 | 1 | #3 Renderer per-frame allocations | deferred — not profiled | `fa9f768` (reverted `22b770e`) | Audit's "per frame" framing was misleading: Canvas re-runs on `@Observable` invalidation, not a frame timer. Only `graph.entities(for:)` in the concept loop was actually quadratic; the other three flagged sites were O(N) singletons. Defer until a profile shows the renderer in a hotspot. |
 | 1 | #4 Sequential LLM batches | deferred — accuracy over speed | — | All three optimization paths trade some accuracy for wall-time. Decision: keep sequential. Option (a) — move `proposeEdges` out of per-batch loop into one end-of-extraction call — retained as future-scope if extraction wall-time becomes a complaint. |
 | 1 | #5 Split `PDFViewerView.swift` | ✅ done | `a01e05c` | Bridge + outline panel + annotation list panel extracted to dedicated files. `PDFViewerView.swift` 1549 → 734 lines. Two tiny types (`TextAnnotationDialog` 35 lines, `PDFThumbnailViewRepresentable` 19 lines) intentionally left in place. |
-| 2 | #6–#15 | open | — | All ten cheap consolidations & correctness items unstarted. |
+| 2 | #6 Stringly-typed PDF annotation kinds | ✅ done | `940e414` | New `PDFAnnotation+Kind.swift` shim normalizes PDFKit's read/write slash asymmetry. 5 read sites + `typeIcon` switch converted to typed `PDFAnnotationSubtype` constants. |
+| 2 | #7 `Notification.Name` literals duplicated | ✅ done | `6447ba9` | Typed extension in `Constants.swift`; ~20 sites converted. Surfaced `OpenDocuments` as dead code (zero posters anywhere — no Swift, no plist, no AppDelegate). Observer deleted. |
+| 2 | #8 `findSourceAnchor` per-page decode | open | — | Held — wider blast radius; would benefit from profile data, like Tier 1 #3. |
+| 2 | #9 `GraphStore.scheduleSave` race + retention | open | — | Latent bug, not cleanup — needs decision doc + sign-off. Separate track. |
+| 2 | #10 TOCTOU + sync I/O on document open | open | — | Latent bug, same track as #9. |
+| 2 | #11 Levenshtein + dup similarity util | open | — | Held — wider blast radius; profile-first. |
+| 2 | #12 `.pdf` strip via `replacingOccurrences` | ✅ done | `ae78939` | `URL.deletingPathExtension()` — fixes case-insensitive (`.PDF`) and double-extension (`v1.pdf.pdf`) edge cases. |
+| 2 | #13 `resolveOverlaps` O(n²) | open | — | Renderer perf, profile-first (same reasoning as Tier 1 #3). |
+| 2 | #14 force-unwraps in extraction | ✅ done | `96924d4` | `guard let` over `if nil { continue }` + `!`. No behavior change. |
+| 2 | #15 UserDefaults raw keys | ✅ done | `5e1bf32` | 3 keys consolidated into existing `AppConstants` UserDefaults block. Audit's `PDFSearchManager` claim was wrong — that file already encapsulates its key. |
 | 3 | #24 `addNode` `.info` log per node | partial | `be9814b` | `merge(from:)` is now silent (routed through a private `insert(_:)`). Extraction/decode paths still emit `.info` per node. Demoting globally was not approved this session. |
 | 3 | All other Tier-3 items | open | — | |
 
