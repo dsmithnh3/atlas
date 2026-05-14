@@ -83,8 +83,13 @@ struct EnhancedDropView<Content: View>: View {
         }
 
         group.notify(queue: .main) {
-            guard !urls.isEmpty else { return }
-            onFilesDropped(Array(urls.prefix(maxFiles)))
+            var seen = Set<URL>()
+            let unique = urls.compactMap { url -> URL? in
+                let standardized = url.standardizedFileURL
+                return seen.insert(standardized).inserted ? standardized : nil
+            }
+            guard !unique.isEmpty else { return }
+            onFilesDropped(Array(unique.prefix(maxFiles)))
         }
     }
 }
