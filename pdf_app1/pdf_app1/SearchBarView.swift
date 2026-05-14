@@ -13,22 +13,40 @@ struct SearchBarView: View {
     let pdfView: PDFView
     @Binding var isPresented: Bool
     @State private var searchText: String = ""
-    
+    // `searchText` stays bound to the TextField for responsive input.
+    // `debouncedSearchText` lags by 250ms (instant when cleared) and
+    // drives the actual search, matching macOS-native search bars and
+    // the project's other debounced search fields (map search, file
+    // search). `.onSubmit` bypasses the debounce for power users who
+    // hit Enter.
+    @State private var debouncedSearchText: String = ""
+
     var body: some View {
         VStack(spacing: 8) {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
-                
+
                 TextField("Search in PDF", text: $searchText)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit {
                         performSearch()
                     }
-                    .onChange(of: searchText) { oldValue, newValue in
+                    .task(id: searchText) {
+                        if searchText.isEmpty {
+                            debouncedSearchText = ""
+                            return
+                        }
+                        try? await Task.sleep(for: .milliseconds(250))
+                        if Task.isCancelled { return }
+                        debouncedSearchText = searchText
+                    }
+                    .onChange(of: debouncedSearchText) { _, newValue in
                         if newValue.isEmpty {
                             searchManager.clearSearch()
                             clearHighlights()
+                        } else {
+                            performSearch()
                         }
                     }
 
