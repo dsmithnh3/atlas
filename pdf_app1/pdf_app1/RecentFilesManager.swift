@@ -74,51 +74,75 @@ class RecentFilesManager: ObservableObject {
             print("Warning: Failed to create bookmark for \(url.path)")
             return
         }
-        
+
         // Load existing bookmarks
         var bookmarks: [Data] = []
         if let existingData = userDefaults.data(forKey: userDefaultsKey),
            let decoded = try? JSONDecoder().decode([Data].self, from: existingData) {
             bookmarks = decoded
         }
-        
-        // Remove duplicate bookmark (if exists)
-        bookmarks.removeAll { existingBookmark in
-            if let existingURL = resolveBookmark(existingBookmark), existingURL == url {
-                return true
-            }
-            return false
+
+        // Dedup by URL match against in-memory `recentFiles`. The list
+        // was already resolved on app start; comparing URLs directly
+        // avoids re-resolving every bookmark just to find a duplicate.
+        if let dupIndex = recentFiles.firstIndex(of: url), dupIndex < bookmarks.count {
+            bookmarks.remove(at: dupIndex)
+            recentFiles.remove(at: dupIndex)
+            inaccessibleFiles = Set(inaccessibleFiles.compactMap {
+                $0 == dupIndex ? nil : ($0 > dupIndex ? $0 - 1 : $0)
+            })
         }
-        
-        // Add new bookmark to beginning
+
+        // Insert at top
         bookmarks.insert(bookmarkData, at: 0)
-        
-        // Limit to maxRecentFiles
+        recentFiles.insert(url, at: 0)
+        // Existing inaccessible indices shift up by 1; the new entry at
+        // index 0 was just successfully opened so it's not inaccessible.
+        inaccessibleFiles = Set(inaccessibleFiles.map { $0 + 1 })
+
+        // Trim to maxRecentFiles
         if bookmarks.count > maxRecentFiles {
+            let droppedRange = maxRecentFiles..<bookmarks.count
             bookmarks = Array(bookmarks.prefix(maxRecentFiles))
+            recentFiles = Array(recentFiles.prefix(maxRecentFiles))
+            inaccessibleFiles = inaccessibleFiles.filter { !droppedRange.contains($0) }
         }
-        
-        // Save bookmarks
+
         saveBookmarks(bookmarks)
-        
-        // Reload recent files
-        loadRecentFiles()
+
+        // Async file-existence check for the newly-added URL only
+        // (mirrors the per-entry check that used to fire via loadRecentFiles).
+        // Look up the index when the check completes since other adds may
+        // shift it in the meantime.
+        let addedURL = url
+        fileCheckQueue.async { [weak self] in
+            if !FileManager.default.fileExists(atPath: addedURL.path) {
+                DispatchQueue.main.async {
+                    guard let self,
+                          let idx = self.recentFiles.firstIndex(of: addedURL) else { return }
+                    self.inaccessibleFiles.insert(idx)
+                }
+            }
+        }
     }
-    
+
     /// Remove files at specified indices
     func removeFiles(at offsets: IndexSet) {
-        // Load bookmarks
         guard let data = userDefaults.data(forKey: userDefaultsKey),
               var bookmarks = try? JSONDecoder().decode([Data].self, from: data) else {
             return
         }
-        
-        // Remove bookmarks at offsets
+
         bookmarks.remove(atOffsets: offsets)
+        recentFiles.remove(atOffsets: offsets)
+        // Drop removed indices from inaccessibleFiles; shift the rest down.
+        inaccessibleFiles = Set(inaccessibleFiles.compactMap { idx in
+            if offsets.contains(idx) { return nil }
+            let shift = offsets.filter { $0 < idx }.count
+            return idx - shift
+        })
+
         saveBookmarks(bookmarks)
-        
-        // Reload recent files
-        loadRecentFiles()
     }
     
     /// Remove inaccessible file at index and clear its stale counter
