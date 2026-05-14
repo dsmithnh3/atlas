@@ -16,16 +16,40 @@ import os.log
 
 private let log = AtlasLogger.ui
 
+// MARK: - Security Scope Accessor
+
+/// Thin seam around `URL.start/stopAccessingSecurityScopedResource()` so the
+/// scope ref-count is countable in tests. Production uses the URL methods
+/// directly; tests inject a counting fake.
+protocol SecurityScopeAccessing {
+    @discardableResult
+    func start(for url: URL) -> Bool
+    func stop(for url: URL)
+}
+
+struct DefaultSecurityScopeAccessor: SecurityScopeAccessing {
+    @discardableResult
+    func start(for url: URL) -> Bool { url.startAccessingSecurityScopedResource() }
+    func stop(for url: URL) { url.stopAccessingSecurityScopedResource() }
+}
+
 // MARK: - Document Model
 struct PDFDocumentItem: Identifiable, Equatable {
     let id = UUID()
     let url: URL
     let document: PDFKit.PDFDocument
     let projectID: UUID?  // Track which project this document belongs to
+    /// True only for documents opened via `restoreOpenSession`, which explicitly
+    /// starts security-scoped access. NSOpenPanel-opened docs inherit access
+    /// implicitly (no balanced `start` exists), so `closeDocument` must not
+    /// call `stop` on those — that would log a runtime warning on an unbalanced
+    /// pair.
+    var needsScopeRelease: Bool = false
+
     var title: String {
         url.deletingPathExtension().lastPathComponent
     }
-    
+
     static func == (lhs: PDFDocumentItem, rhs: PDFDocumentItem) -> Bool {
         lhs.id == rhs.id
     }
@@ -61,9 +85,12 @@ class DocumentManager: ObservableObject {
     
     private var maxOpenDocuments = 10
     let recentFilesManager: RecentFilesManager
+    private let scopeAccessor: SecurityScopeAccessing
 
-    init(recentFilesManager: RecentFilesManager) {
+    init(recentFilesManager: RecentFilesManager,
+         scopeAccessor: SecurityScopeAccessing = DefaultSecurityScopeAccessor()) {
         self.recentFilesManager = recentFilesManager
+        self.scopeAccessor = scopeAccessor
     }
 
     var selectedDocument: PDFDocumentItem? {
@@ -127,13 +154,16 @@ class DocumentManager: ObservableObject {
     
     func closeDocument(_ document: PDFDocumentItem) {
         log.info("[DocManager] closeDocument: \(document.url.lastPathComponent)")
+        if document.needsScopeRelease {
+            scopeAccessor.stop(for: document.url)
+        }
         documents.removeAll { $0.id == document.id }
-        
+
         // Update selection
         if selectedDocumentID == document.id {
             selectedDocumentID = documents.first?.id
         }
-        
+
         // Update comparison if needed
         updateComparisonAfterClosing(document)
     }
@@ -220,32 +250,57 @@ class DocumentManager: ObservableObject {
             return
         }
 
+        restoreFromBookmarks(bookmarks, resolver: resolveSessionBookmark)
+    }
+
+    /// Loop body of session restore, factored out so tests can inject a
+    /// counting `SecurityScopeAccessing` and a pass-through resolver
+    /// (the real `.withSecurityScope` resolver only works on bookmarks
+    /// created with that flag, which tests can't readily produce).
+    typealias BookmarkResolver = (Data) -> URL?
+
+    func restoreFromBookmarks(_ bookmarks: [Data], resolver: BookmarkResolver) {
         var restoredCount = 0
         for bookmark in bookmarks {
             guard canAddDocument else { break }
+            guard let url = resolver(bookmark) else { continue }
 
-            var isStale = false
-            guard let url = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI], relativeTo: nil, bookmarkDataIsStale: &isStale) else {
-                continue
-            }
-
-            // Start security-scoped access — do NOT stop it, the document needs
-            // continued access for rendering. Access is released on app termination.
-            _ = url.startAccessingSecurityScopedResource()
-
+            // Dedup BEFORE acquiring scope. Two bookmarks can resolve to the
+            // same canonical URL (symlinks, `/private` prefix on macOS), and
+            // a start-then-skip path would leak a scope ref-count per dup.
             guard !documents.contains(where: { $0.url == url }) else { continue }
+
+            // Start security-scoped access — held until `closeDocument`
+            // releases it (the document needs continued access for PDFKit
+            // page reads and any later `pdfDocument.write(to:)`).
+            _ = scopeAccessor.start(for: url)
+
             guard let document = PDFKit.PDFDocument(url: url) else {
-                url.stopAccessingSecurityScopedResource()
+                scopeAccessor.stop(for: url)
                 log.warning("[DocManager] restoreOpenSession: failed to open \(url.lastPathComponent)")
                 continue
             }
 
-            let pdfDoc = PDFDocumentItem(url: url, document: document, projectID: nil)
+            let pdfDoc = PDFDocumentItem(url: url, document: document, projectID: nil, needsScopeRelease: true)
             documents.append(pdfDoc)
             selectedDocumentID = pdfDoc.id
             recentFilesManager.addRecentFile(url)
             restoredCount += 1
         }
         log.info("[DocManager] restoreOpenSession: restored \(restoredCount)/\(bookmarks.count) tab(s)")
+    }
+
+    private func resolveSessionBookmark(_ bookmark: Data) -> URL? {
+        var isStale = false
+        guard let url = try? URL(resolvingBookmarkData: bookmark,
+                                 options: [.withSecurityScope, .withoutUI],
+                                 relativeTo: nil,
+                                 bookmarkDataIsStale: &isStale) else {
+            return nil
+        }
+        if isStale {
+            log.info("[DocManager] restoreOpenSession: stale bookmark for \(url.lastPathComponent) — will refresh on next saveOpenSession")
+        }
+        return url
     }
 }
