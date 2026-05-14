@@ -7,7 +7,6 @@
 //
 
 import Foundation
-import CryptoKit
 import os.log
 
 private let log = AtlasLogger.graph
@@ -31,9 +30,7 @@ class GraphStore {
     // MARK: - File Path Helpers
 
     private func graphFileURL(for documentURL: URL) -> URL {
-        let hash = SHA256.hash(data: Data(documentURL.absoluteString.utf8))
-        let hashString = hash.prefix(16).map { String(format: "%02x", $0) }.joined()
-        return graphsDirectory.appendingPathComponent("\(hashString).json")
+        graphsDirectory.appendingPathComponent("\(documentURL.absoluteString.sha256HexPrefix16).json")
     }
 
     private func projectGraphFileURL(for projectID: UUID) -> URL {

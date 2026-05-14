@@ -7,7 +7,6 @@
 
 import Foundation
 import Security
-import CryptoKit
 import Observation
 import os.log
 
@@ -129,9 +128,7 @@ class AIServiceManager {
     }
 
     private func cacheKey(prompt: String, model: String) -> String {
-        let input = "\(model):\(prompt)"
-        let hash = SHA256.hash(data: Data(input.utf8))
-        return hash.prefix(16).map { String(format: "%02x", $0) }.joined()
+        "\(model):\(prompt)".sha256HexPrefix16
     }
 
     // MARK: - Preferences Persistence
