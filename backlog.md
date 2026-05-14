@@ -53,8 +53,9 @@ Durable "someday/maybe" items — distinct from session-level Unresolved (which 
 -->
 
 <!-- Done 2026-05-14 (late evening):
-  - /simplify Tier 3 cheap-dedup batch — 2 commits direct to main (`8e48cfc..f54af50`, not yet pushed): #20 extracted `String.sha256HexPrefix16` helper in new `Atlas/Utils/String+Hash.swift`, removed the SHA256→hex-16 dup at GraphStore.graphFileURL + AIServiceManager.cacheKey (CryptoKit imports dropped from both); #26 deleted the wasted `page.selection(for: NSRange(fullText))` inside `TextExtractor.extractBlocks`'s per-line loop — the `_ = selection // suppress warning` line was a band-aid pointing at exactly this dead work. Reframe during analysis: the call ran once per line (not once per page as the audit implied), so the impact is a real per-extraction perf win on text-heavy pages, not just dead-code removal.
-  - Build green at both steps; no behavior change for #20 (file names + cache keys are byte-identical to before), no behavior change for #26 (the filtering the page-wide selection appeared to provide was already covered by earlier guards + `findSelection`'s own nil-handling).
+  - /simplify Tier 3 cheap-dedup batch — 2 commits direct to main (`8e48cfc..f54af50`, pushed): #20 extracted `String.sha256HexPrefix16` helper in new `Atlas/Utils/String+Hash.swift`, removed the SHA256→hex-16 dup at GraphStore.graphFileURL + AIServiceManager.cacheKey (CryptoKit imports dropped from both); #26 deleted the wasted `page.selection(for: NSRange(fullText))` inside `TextExtractor.extractBlocks`'s per-line loop — the `_ = selection // suppress warning` line was a band-aid pointing at exactly this dead work. Reframe during analysis: the call ran once per line (not once per page as the audit implied), so the impact is a real per-extraction perf win on text-heavy pages, not just dead-code removal.
+  - /simplify Tier 3 #28 (`2990b57`): dropped `.PDFViewVisiblePagesChanged` observer from `ScrollTracker` — duplicated `.PDFViewPageChanged` at slower debounce (200ms vs 100ms) in this app's `.singlePageContinuous` mode. Plus equality-guarded the 3 `activeNodeID` write sites in `BidirectionalSyncManager.updateActiveNode` so `@Observable` doesn't notify downstream (`DensityManager`, `MapCanvasRenderer`) for stay-on-same-page scrolls.
+  - Build green at each step.
 -->
 
 <!-- Done 2026-05-14 (evening):
