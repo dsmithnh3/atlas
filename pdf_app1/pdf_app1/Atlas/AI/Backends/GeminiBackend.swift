@@ -74,19 +74,35 @@ final class GeminiBackend: LLMBackend, @unchecked Sendable {
             throw AIError.httpError(statusCode: httpResponse.statusCode, message: message)
         }
 
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        guard let candidates = json?["candidates"] as? [[String: Any]],
-              let firstCandidate = candidates.first,
-              let candidateContent = firstCandidate["content"] as? [String: Any],
-              let parts = candidateContent["parts"] as? [[String: Any]],
-              let text = parts.first?["text"] as? String else {
+        let parsed: GeminiResponse
+        do {
+            parsed = try JSONDecoder().decode(GeminiResponse.self, from: data)
+        } catch {
             let raw = String(data: data, encoding: .utf8) ?? "<binary>"
-            log.error("[Gemini] Could not parse response structure. Raw (first 500): \(String(raw.prefix(500)))")
+            log.error("[Gemini] Could not parse response structure: \(error). Raw (first 500): \(String(raw.prefix(500)))")
+            throw AIError.invalidResponse
+        }
+        guard let text = parsed.candidates.first?.content.parts.first?.text else {
+            let raw = String(data: data, encoding: .utf8) ?? "<binary>"
+            log.error("[Gemini] Empty candidates/parts. Raw (first 500): \(String(raw.prefix(500)))")
             throw AIError.invalidResponse
         }
 
         log.info("[Gemini] Got text response: \(text.count) chars")
         log.debug("[Gemini] Response preview: \(String(text.prefix(200)))")
         return text
+    }
+}
+
+private struct GeminiResponse: Decodable {
+    let candidates: [Candidate]
+    struct Candidate: Decodable {
+        let content: Content
+    }
+    struct Content: Decodable {
+        let parts: [Part]
+    }
+    struct Part: Decodable {
+        let text: String
     }
 }

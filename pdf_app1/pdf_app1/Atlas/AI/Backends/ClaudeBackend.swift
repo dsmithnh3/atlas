@@ -68,17 +68,29 @@ final class ClaudeBackend: LLMBackend, @unchecked Sendable {
             throw AIError.httpError(statusCode: httpResponse.statusCode, message: message)
         }
 
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        guard let contentArray = json?["content"] as? [[String: Any]],
-              let firstBlock = contentArray.first,
-              let text = firstBlock["text"] as? String else {
+        let parsed: ClaudeResponse
+        do {
+            parsed = try JSONDecoder().decode(ClaudeResponse.self, from: data)
+        } catch {
             let raw = String(data: data, encoding: .utf8) ?? "<binary>"
-            log.error("[Claude] Could not parse response structure. Raw (first 500): \(String(raw.prefix(500)))")
+            log.error("[Claude] Could not parse response structure: \(error). Raw (first 500): \(String(raw.prefix(500)))")
+            throw AIError.invalidResponse
+        }
+        guard let text = parsed.content.first?.text else {
+            let raw = String(data: data, encoding: .utf8) ?? "<binary>"
+            log.error("[Claude] Empty content array. Raw (first 500): \(String(raw.prefix(500)))")
             throw AIError.invalidResponse
         }
 
         log.info("[Claude] Got text response: \(text.count) chars")
         log.debug("[Claude] Response preview: \(String(text.prefix(200)))")
         return text
+    }
+}
+
+private struct ClaudeResponse: Decodable {
+    let content: [ContentBlock]
+    struct ContentBlock: Decodable {
+        let text: String
     }
 }

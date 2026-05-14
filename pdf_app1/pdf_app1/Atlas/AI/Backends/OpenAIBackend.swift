@@ -75,17 +75,32 @@ final class OpenAIBackend: LLMBackend, @unchecked Sendable {
             throw AIError.httpError(statusCode: httpResponse.statusCode, message: message)
         }
 
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        guard let choices = json?["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any],
-              let text = message["content"] as? String else {
+        let parsed: OpenAIResponse
+        do {
+            parsed = try JSONDecoder().decode(OpenAIResponse.self, from: data)
+        } catch {
             let raw = String(data: data, encoding: .utf8) ?? "<binary>"
-            log.error("[OpenAI] Could not parse response structure. Raw (first 500): \(String(raw.prefix(500)))")
+            log.error("[OpenAI] Could not parse response structure: \(error). Raw (first 500): \(String(raw.prefix(500)))")
+            throw AIError.invalidResponse
+        }
+        guard let text = parsed.choices.first?.message.content else {
+            let raw = String(data: data, encoding: .utf8) ?? "<binary>"
+            log.error("[OpenAI] Empty choices. Raw (first 500): \(String(raw.prefix(500)))")
             throw AIError.invalidResponse
         }
 
         log.info("[OpenAI] Got text response: \(text.count) chars")
         log.debug("[OpenAI] Response preview: \(String(text.prefix(200)))")
         return text
+    }
+}
+
+private struct OpenAIResponse: Decodable {
+    let choices: [Choice]
+    struct Choice: Decodable {
+        let message: Message
+    }
+    struct Message: Decodable {
+        let content: String
     }
 }
