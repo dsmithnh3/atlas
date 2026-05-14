@@ -80,7 +80,7 @@ struct AnnotationListPanel: View {
             guard let page = pdfDocument.page(at: i) else { continue }
             for annotation in page.annotations {
                 // Skip built-in widget annotations
-                if annotation.type == "Widget" { continue }
+                if annotation.isKind(.widget) { continue }
                 result.append((pageIndex: i, annotation: annotation))
             }
         }
@@ -94,19 +94,21 @@ struct AnnotationRowView: View {
     let onNavigate: () -> Void
     let onDelete: () -> Void
 
+    private static let iconNames: [PDFAnnotationSubtype: String] = [
+        .highlight: "highlighter",
+        .underline: "underline",
+        .strikeOut: "strikethrough",
+        .freeText: "text.bubble",
+        .text: "note.text",
+        .ink: "pencil.tip",
+        .square: "rectangle",
+        .circle: "circle",
+        .line: "line.diagonal"
+    ]
+
     private var typeIcon: String {
-        switch annotation.type {
-        case "Highlight": return "highlighter"
-        case "Underline": return "underline"
-        case "StrikeOut": return "strikethrough"
-        case "FreeText": return "text.bubble"
-        case "Text": return "note.text"
-        case "Ink": return "pencil.tip"
-        case "Square": return "rectangle"
-        case "Circle": return "circle"
-        case "Line": return "line.diagonal"
-        default: return "pencil"
-        }
+        guard let subtype = annotation.atlasSubtype else { return "pencil" }
+        return Self.iconNames[subtype] ?? "pencil"
     }
 
     var body: some View {

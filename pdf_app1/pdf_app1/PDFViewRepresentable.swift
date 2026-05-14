@@ -227,13 +227,13 @@ struct PDFViewRepresentable: NSViewRepresentable {
 
             let menu = NSMenu()
 
-            if annotation.type == "FreeText" {
+            if annotation.isKind(.freeText) {
                 let editItem = NSMenuItem(title: "Edit Text…", action: #selector(editHitFreeTextAnnotation(_:)), keyEquivalent: "")
                 editItem.target = self
                 menu.addItem(editItem)
             }
 
-            if annotation.type == "Highlight" {
+            if annotation.isKind(.highlight) {
                 let recolorItem = NSMenuItem(title: "Apply Current Highlight Color", action: #selector(applyCurrentHighlightColor(_:)), keyEquivalent: "")
                 recolorItem.target = self
                 menu.addItem(recolorItem)
@@ -251,7 +251,7 @@ struct PDFViewRepresentable: NSViewRepresentable {
 
         @objc private func editHitFreeTextAnnotation(_ sender: Any?) {
             guard let annotation = hitAnnotation, let page = hitAnnotationPage else { return }
-            guard annotation.type == "FreeText" else { return }
+            guard annotation.isKind(.freeText) else { return }
 
             let oldContents = annotation.contents
 
@@ -279,7 +279,7 @@ struct PDFViewRepresentable: NSViewRepresentable {
 
         @objc private func applyCurrentHighlightColor(_ sender: Any?) {
             guard let annotation = hitAnnotation, let page = hitAnnotationPage else { return }
-            guard annotation.type == "Highlight" else { return }
+            guard annotation.isKind(.highlight) else { return }
 
             let oldColor = annotation.color
             let newColor = NSColor(highlightColor).withAlphaComponent(AppConstants.annotationAlpha)
