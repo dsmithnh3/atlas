@@ -279,14 +279,12 @@ class ExtractionPipeline {
 
         for rawConcept in rawConcepts {
             // Resolve concept-level node
-            let conceptAnchor = findSourceAnchor(
+            guard let conceptAnchor = findSourceAnchor(
                 for: rawConcept.textSpan,
                 in: classifiedBlocks,
                 documentURL: documentURL,
                 document: document
-            )
-
-            if conceptAnchor == nil {
+            ) else {
                 rejected += 1
                 log.debug("[Step 5] REJECTED concept (no anchor): \"\(rawConcept.label)\"")
                 continue
@@ -305,7 +303,7 @@ class ExtractionPipeline {
             let conceptNodeID: UUID
 
             if var existing = existingNode {
-                existing.sourceAnchors.append(conceptAnchor!)
+                existing.sourceAnchors.append(conceptAnchor)
                 if let summary = rawConcept.summary, existing.summary == nil {
                     existing.summary = summary
                 }
@@ -319,7 +317,7 @@ class ExtractionPipeline {
                     label: rawConcept.label,
                     type: conceptType,
                     summary: rawConcept.summary,
-                    sourceAnchors: [conceptAnchor!],
+                    sourceAnchors: [conceptAnchor],
                     confidence: rawConcept.confidence ?? 0.8,
                     level: effectiveLevel,
                     highlightColorIndex: colorIndex,
@@ -353,14 +351,12 @@ class ExtractionPipeline {
             guard let entities = rawConcept.entities, !entities.isEmpty else { continue }
 
             for rawEntity in entities {
-                let entityAnchor = findSourceAnchor(
+                guard let entityAnchor = findSourceAnchor(
                     for: rawEntity.textSpan,
                     in: classifiedBlocks,
                     documentURL: documentURL,
                     document: document
-                )
-
-                if entityAnchor == nil {
+                ) else {
                     rejected += 1
                     log.debug("[Step 5] REJECTED entity (no anchor): \"\(rawEntity.label)\" under \"\(rawConcept.label)\"")
                     continue
@@ -373,7 +369,7 @@ class ExtractionPipeline {
                 let existingEntity = graph.node(matching: rawEntity.label)
 
                 if var existing = existingEntity {
-                    existing.sourceAnchors.append(entityAnchor!)
+                    existing.sourceAnchors.append(entityAnchor)
                     if existing.parentConceptID == nil {
                         existing.parentConceptID = conceptNodeID
                     }
@@ -389,7 +385,7 @@ class ExtractionPipeline {
                         label: rawEntity.label,
                         type: entityType,
                         summary: rawEntity.summary,
-                        sourceAnchors: [entityAnchor!],
+                        sourceAnchors: [entityAnchor],
                         confidence: rawEntity.confidence ?? 0.8,
                         level: .entity,
                         parentConceptID: conceptNodeID,
