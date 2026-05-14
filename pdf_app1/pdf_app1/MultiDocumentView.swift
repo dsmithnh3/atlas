@@ -280,15 +280,9 @@ struct MultiDocumentView: View {
     @State private var isChatVisible = false
     @State private var chatViewModel: ChatViewModel?
     @State private var showCommandPalette = false
-    @State private var sidebarSection: SidebarSection = .projects
-    @State private var projectsQuery: String = ""
-    @State private var filesQuery: String = ""
-    @State private var showingCreateProject = false
-    @State private var createProjectName: String = ""
-    @State private var createProjectPickedURLs: [URL] = []
-    @State private var renamingProjectID: UUID?
-    @State private var showingRenameProject = false
-    @State private var renameProjectName: String = ""
+    @State private var sidebarState = SidebarState()
+    @State private var createProjectSheet = CreateProjectSheetState()
+    @State private var renameProjectSheet = RenameProjectSheetState()
     @State private var toolbarBridge = PDFToolbarBridge()
 
     var body: some View {
@@ -409,6 +403,25 @@ struct MultiDocumentView: View {
     enum SidebarSection: String, CaseIterable {
         case projects = "Projects"
         case recents = "Recents"
+    }
+
+    // MARK: - State Bundles
+    struct SidebarState {
+        var section: SidebarSection = .projects
+        var projectsQuery: String = ""
+        var filesQuery: String = ""
+    }
+
+    struct CreateProjectSheetState {
+        var isPresented: Bool = false
+        var name: String = ""
+        var pickedURLs: [URL] = []
+    }
+
+    struct RenameProjectSheetState {
+        var isPresented: Bool = false
+        var projectID: UUID?
+        var newName: String = ""
     }
 
     private var pdfAnnotationIcon: String {
@@ -628,7 +641,7 @@ struct MultiDocumentView: View {
             }
 
             // ── Section Picker ──
-            Picker("", selection: $sidebarSection) {
+            Picker("", selection: $sidebarState.section) {
                 ForEach(SidebarSection.allCases, id: \.self) { section in
                     Text(section.rawValue).tag(section)
                 }
@@ -638,7 +651,7 @@ struct MultiDocumentView: View {
             .padding(.vertical, 8)
 
             // ── Section Content ──
-            switch sidebarSection {
+            switch sidebarState.section {
             case .projects:
                 projectsSectionContent
             case .recents:
@@ -646,26 +659,26 @@ struct MultiDocumentView: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-        .sheet(isPresented: $showingCreateProject) {
+        .sheet(isPresented: $createProjectSheet.isPresented) {
             CreateProjectView(
-                projectName: $createProjectName,
-                pickedURLs: $createProjectPickedURLs,
+                projectName: $createProjectSheet.name,
+                pickedURLs: $createProjectSheet.pickedURLs,
                 onCreate: { name, urls in
                     projectsManager.createProject(name: name, urls: urls)
-                    createProjectName = ""
-                    createProjectPickedURLs = []
+                    createProjectSheet.name = ""
+                    createProjectSheet.pickedURLs = []
                 }
             )
         }
-        .sheet(isPresented: $showingRenameProject) {
-            if let projectID = renamingProjectID {
+        .sheet(isPresented: $renameProjectSheet.isPresented) {
+            if let projectID = renameProjectSheet.projectID {
                 RenameProjectView(
                     projectID: projectID,
-                    currentName: $renameProjectName,
+                    currentName: $renameProjectSheet.newName,
                     onRename: { newName in
                         projectsManager.renameProject(projectID, name: newName)
-                        renamingProjectID = nil
-                        renameProjectName = ""
+                        renameProjectSheet.projectID = nil
+                        renameProjectSheet.newName = ""
                     }
                 )
             }
@@ -724,7 +737,7 @@ struct MultiDocumentView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextField("Search...", text: $projectsQuery)
+                    TextField("Search...", text: $sidebarState.projectsQuery)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
                 }
@@ -732,7 +745,7 @@ struct MultiDocumentView: View {
                 .padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
 
-                Button(action: { showingCreateProject = true }) {
+                Button(action: { createProjectSheet.isPresented = true }) {
                     Image(systemName: "folder.badge.plus")
                         .font(.system(size: 13))
                 }
@@ -752,7 +765,7 @@ struct MultiDocumentView: View {
                     Text("No projects yet")
                         .font(.callout)
                         .foregroundColor(.secondary)
-                    Button("Create Project") { showingCreateProject = true }
+                    Button("Create Project") { createProjectSheet.isPresented = true }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     Spacer()
@@ -814,9 +827,9 @@ struct MultiDocumentView: View {
             }
             Divider()
             Button("Rename...") {
-                renamingProjectID = project.id
-                renameProjectName = project.name
-                showingRenameProject = true
+                renameProjectSheet.projectID = project.id
+                renameProjectSheet.newName = project.name
+                renameProjectSheet.isPresented = true
             }
             Button("Delete", role: .destructive) {
                 let openDocsInProject = documentManager.documents.filter { $0.projectID == project.id }
@@ -1134,7 +1147,7 @@ struct MultiDocumentView: View {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
-                TextField("Search files...", text: $filesQuery)
+                TextField("Search files...", text: $sidebarState.filesQuery)
                     .textFieldStyle(.roundedBorder)
             }
             .padding(.horizontal)
@@ -1293,7 +1306,7 @@ struct MultiDocumentView: View {
                 .controlSize(.large)
 
                 Button {
-                    showingCreateProject = true
+                    createProjectSheet.isPresented = true
                 } label: {
                     Label("New Project", systemImage: "folder.badge.plus")
                 }
@@ -1368,11 +1381,11 @@ struct MultiDocumentView: View {
 
     // MARK: - Computed Properties
     private var filteredProjects: [Project] {
-        if projectsQuery.isEmpty {
+        if sidebarState.projectsQuery.isEmpty {
             return projectsManager.projects
         } else {
             return projectsManager.projects.filter { project in
-                project.name.localizedCaseInsensitiveContains(projectsQuery)
+                project.name.localizedCaseInsensitiveContains(sidebarState.projectsQuery)
             }
         }
     }
@@ -1380,7 +1393,7 @@ struct MultiDocumentView: View {
     private var filteredProjectFiles: [URL] {
         guard let projectID = projectsManager.selectedProjectID else { return [] }
         
-        let files = projectsManager.files(for: projectID, query: filesQuery)
+        let files = projectsManager.files(for: projectID, query: sidebarState.filesQuery)
         return files.compactMap { file in
             // Try to resolve from bookmark first, fallback to lastKnownPath
             if let url = projectsManager.resolveURL(for: projectID, fileID: file.id) {
