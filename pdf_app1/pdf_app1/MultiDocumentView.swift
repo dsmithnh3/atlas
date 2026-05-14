@@ -284,6 +284,14 @@ struct MultiDocumentView: View {
     @State private var createProjectSheet = CreateProjectSheetState()
     @State private var renameProjectSheet = RenameProjectSheetState()
     @State private var toolbarBridge = PDFToolbarBridge()
+    // Cached file list for the projects sidebar. Rebuilt only when the
+    // selected project, project count, or the debounced search query
+    // changes — not on every body re-render. `filteredProjectFiles`
+    // (the old computed property) resolved a security-scoped bookmark
+    // per file per render, with two body consumers, so a project with
+    // N files ran 2N filesystem syscalls per render during extraction.
+    @State private var cachedProjectFiles: [URL] = []
+    @State private var debouncedFilesQuery: String = ""
 
     var body: some View {
         NavigationSplitView {
@@ -682,6 +690,31 @@ struct MultiDocumentView: View {
                     }
                 )
             }
+        }
+        // Project-files cache invalidation. The cache rebuilds when the
+        // selected project, total project count, or debounced search query
+        // changes. File renames inside a project don't trigger a rebuild
+        // (count unchanged) — accepted lag.
+        .task(id: sidebarState.filesQuery) {
+            if sidebarState.filesQuery.isEmpty {
+                debouncedFilesQuery = ""
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+            if Task.isCancelled { return }
+            debouncedFilesQuery = sidebarState.filesQuery
+        }
+        .onChange(of: debouncedFilesQuery) { _, _ in
+            recomputeProjectFilesCache()
+        }
+        .onChange(of: projectsManager.selectedProjectID) { _, _ in
+            recomputeProjectFilesCache()
+        }
+        .onChange(of: projectsManager.projects.count) { _, _ in
+            recomputeProjectFilesCache()
+        }
+        .onAppear {
+            recomputeProjectFilesCache()
         }
     }
 
@@ -1158,7 +1191,7 @@ struct MultiDocumentView: View {
             // Files list - vertical layout like Finder
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(filteredProjectFiles, id: \.self) { file in
+                    ForEach(cachedProjectFiles, id: \.self) { file in
                         ProjectFileRow(
                             file: file,
                             projectsManager: projectsManager,
@@ -1326,7 +1359,7 @@ struct MultiDocumentView: View {
     // MARK: - Document Extraction
 
     private var hasUnprocessedFiles: Bool {
-        filteredProjectFiles.contains { url in
+        cachedProjectFiles.contains { url in
             let state = knowledgeGraph.documentProcessingState[url] ?? .unprocessed
             return state == .unprocessed || state == .failed
         }
@@ -1342,7 +1375,7 @@ struct MultiDocumentView: View {
     }
 
     private func analyzeAllUnprocessed() {
-        let unprocessed = filteredProjectFiles.filter { url in
+        let unprocessed = cachedProjectFiles.filter { url in
             let state = knowledgeGraph.documentProcessingState[url] ?? .unprocessed
             return state == .unprocessed || state == .failed
         }
@@ -1390,16 +1423,20 @@ struct MultiDocumentView: View {
         }
     }
     
-    private var filteredProjectFiles: [URL] {
-        guard let projectID = projectsManager.selectedProjectID else { return [] }
-        
-        let files = projectsManager.files(for: projectID, query: sidebarState.filesQuery)
-        return files.compactMap { file in
-            // Try to resolve from bookmark first, fallback to lastKnownPath
+    private func recomputeProjectFilesCache() {
+        guard let projectID = projectsManager.selectedProjectID else {
+            cachedProjectFiles = []
+            return
+        }
+
+        let files = projectsManager.files(for: projectID, query: debouncedFilesQuery)
+        cachedProjectFiles = files.compactMap { file in
+            // Try to resolve from bookmark first, fallback to lastKnownPath.
+            // `resolveURL` self-heals stale bookmarks — that side-effect now
+            // runs only at cache-rebuild time, not on every body re-render.
             if let url = projectsManager.resolveURL(for: projectID, fileID: file.id) {
                 return url
             } else {
-                // Fallback to lastKnownPath
                 return URL(fileURLWithPath: file.lastKnownPath)
             }
         }
