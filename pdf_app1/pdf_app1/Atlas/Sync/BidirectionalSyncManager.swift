@@ -52,8 +52,15 @@ class BidirectionalSyncManager {
 
     /// Find the most relevant node for the current page
     private func updateActiveNode() {
+        // Guard each assignment by equality — `activeNodeID` is on an
+        // `@Observable` whose setter notifies downstream regardless of
+        // whether the value actually changed. Scrolling within the same
+        // page (or repeat fires from PDFKit on the same boundary) would
+        // otherwise re-run DensityManager / MapCanvasRenderer for no win.
+        let nextID: UUID?
+
         guard let graph, let documentURL else {
-            activeNodeID = nil
+            if activeNodeID != nil { activeNodeID = nil }
             return
         }
 
@@ -63,17 +70,18 @@ class BidirectionalSyncManager {
             if activeNodeID != firstNode.id {
                 log.debug("[Sync] PDF→Map: page \(self.currentPageIndex + 1) → node \"\(firstNode.label)\"")
             }
-            activeNodeID = firstNode.id
+            nextID = firstNode.id
         } else {
-            // Try adjacent pages
             let nearbyNodes = graph.allNodes.filter { node in
                 node.sourceAnchors.contains { anchor in
                     anchor.documentURL == documentURL
                     && abs(anchor.pageIndex - currentPageIndex) <= 1
                 }
             }
-            activeNodeID = nearbyNodes.first?.id
+            nextID = nearbyNodes.first?.id
         }
+
+        if activeNodeID != nextID { activeNodeID = nextID }
     }
 
     // MARK: - Map → PDF Sync
