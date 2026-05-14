@@ -164,8 +164,12 @@ nonisolated class HighlightSyncBridge {
     }
 
     // MARK: - Text-based passage finding
+    // Static because they touch no instance state — `findPassageRects` was
+    // previously called via fresh `HighlightSyncBridge()` instances in
+    // PDFViewerView and tests, which created a duplicate-instance hazard
+    // around `activeAnnotationMap` (audit #21).
 
-    func findPassageRects(snippet: String, on page: PDFPage) -> [CGRect]? {
+    static func findPassageRects(snippet: String, on page: PDFPage) -> [CGRect]? {
         guard !snippet.isEmpty,
               let pageText = page.string,
               !pageText.isEmpty else { return nil }
@@ -191,7 +195,7 @@ nonisolated class HighlightSyncBridge {
         return rects.isEmpty ? nil : rects
     }
 
-    private func whitespaceFlexibleMatch(snippet: String, in pageText: String) -> NSRange? {
+    private static func whitespaceFlexibleMatch(snippet: String, in pageText: String) -> NSRange? {
         let words = snippet.split(whereSeparator: { $0.isWhitespace })
         guard !words.isEmpty else { return nil }
         let pattern = words

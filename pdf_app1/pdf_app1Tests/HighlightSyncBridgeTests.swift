@@ -41,8 +41,7 @@ final class HighlightSyncBridgeTests: XCTestCase {
             return
         }
 
-        let bridge = HighlightSyncBridge()
-        let rects = bridge.findPassageRects(snippet: "mitochondria powerhouse", on: page)
+        let rects = HighlightSyncBridge.findPassageRects(snippet: "mitochondria powerhouse", on: page)
 
         XCTAssertNil(rects, "Should return nil when snippet is not on the page")
     }
@@ -54,8 +53,7 @@ final class HighlightSyncBridgeTests: XCTestCase {
             return
         }
 
-        let bridge = HighlightSyncBridge()
-        let rects = bridge.findPassageRects(snippet: "", on: page)
+        let rects = HighlightSyncBridge.findPassageRects(snippet: "", on: page)
 
         XCTAssertNil(rects, "Should return nil for empty snippet")
     }
@@ -67,8 +65,7 @@ final class HighlightSyncBridgeTests: XCTestCase {
             return
         }
 
-        let bridge = HighlightSyncBridge()
-        let rects = bridge.findPassageRects(snippet: "plants convert sunlight", on: page)
+        let rects = HighlightSyncBridge.findPassageRects(snippet: "plants convert sunlight", on: page)
 
         XCTAssertNotNil(rects, "Should find the snippet on the page")
         XCTAssertFalse(rects!.isEmpty, "Should return at least one rect")
@@ -87,8 +84,7 @@ final class HighlightSyncBridgeTests: XCTestCase {
             return
         }
 
-        let bridge = HighlightSyncBridge()
-        let rects = bridge.findPassageRects(snippet: snippet, on: page)
+        let rects = HighlightSyncBridge.findPassageRects(snippet: snippet, on: page)
 
         XCTAssertNotNil(rects, "Should find multi-line snippet")
         XCTAssertGreaterThan(rects!.count, 1, "Multi-line text should produce multiple rects")
@@ -101,8 +97,7 @@ final class HighlightSyncBridgeTests: XCTestCase {
             return
         }
 
-        let bridge = HighlightSyncBridge()
-        let rects = bridge.findPassageRects(snippet: "PLANTS CONVERT SUNLIGHT", on: page)
+        let rects = HighlightSyncBridge.findPassageRects(snippet: "PLANTS CONVERT SUNLIGHT", on: page)
 
         XCTAssertNotNil(rects, "Case-insensitive search should find the snippet")
     }

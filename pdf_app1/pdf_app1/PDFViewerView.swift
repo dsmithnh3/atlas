@@ -262,10 +262,9 @@ struct PDFViewerView: View {
                 let boundingBox = userInfo?["boundingBox"] as? CGRect
                 let textSnippet = userInfo?["textSnippet"] as? String
 
-                let bridge = HighlightSyncBridge()
                 let passageRects: [CGRect]
                 if let snippet = textSnippet,
-                   let found = bridge.findPassageRects(snippet: snippet, on: page) {
+                   let found = HighlightSyncBridge.findPassageRects(snippet: snippet, on: page) {
                     passageRects = found
                 } else if let bb = boundingBox {
                     passageRects = [bb]
