@@ -52,7 +52,8 @@ class ForceDirectedLayout {
         nodes: [ConceptNode],
         edges: [GraphEdge],
         canvasSize: CGSize,
-        anchorNodes: [UUID: CGPoint] = [:]
+        anchorNodes: [UUID: CGPoint] = [:],
+        validNodeIDs: Set<UUID>? = nil
     ) {
         guard !nodes.isEmpty else { return }
 
@@ -62,22 +63,38 @@ class ForceDirectedLayout {
             height: max(canvasSize.height, Double(nodes.count) * 90)
         )
 
-        // Build a parent-concept lookup from `containsEntity` edges. Replaces
-        // the prior `parentConceptID` field on entities — under the 4-level
-        // model containment is expressed as an edge (an entity may have
-        // multiple parent concepts, so this picks the first found).
+        // Build parent-concept lookups from `containsEntity` (entity → concept)
+        // and `containsConcept` (concept → chapter) edges. The level-band
+        // seeder uses both to sub-cluster entities under their parent concept
+        // and concepts under their parent chapter.
         parentConceptByEntity = [:]
-        for edge in edges where edge.type == .containsEntity {
-            if parentConceptByEntity[edge.targetNodeID] == nil {
-                parentConceptByEntity[edge.targetNodeID] = edge.sourceNodeID
+        var parentChapterByConcept: [UUID: UUID] = [:]
+        for edge in edges {
+            switch edge.type {
+            case .containsEntity:
+                if parentConceptByEntity[edge.targetNodeID] == nil {
+                    parentConceptByEntity[edge.targetNodeID] = edge.sourceNodeID
+                }
+            case .containsConcept:
+                if parentChapterByConcept[edge.targetNodeID] == nil {
+                    parentChapterByConcept[edge.targetNodeID] = edge.sourceNodeID
+                }
+            default:
+                continue
             }
         }
 
-        // Group by NodeLevel for entities (under their parent concept) and
-        // by node id for concepts/chapters/documents (one group each).
-        // Tree-based seeding from `HierarchyForest` was removed — band-by-
-        // level seeding is a follow-up commit.
-        let seedPositions: [UUID: CGPoint] = [:]
+        // Band seeding: each node gets an initial position in its level's
+        // horizontal band, sub-clustered by parent. Run only for newly-seen
+        // nodes; existing positions are preserved across calls so tab
+        // switches don't reshuffle the layout.
+        let seedPositions = LevelBandSeeder.seed(
+            nodes: nodes,
+            canvasSize: virtualSize,
+            parentByEntity: parentConceptByEntity,
+            parentByConcept: parentChapterByConcept
+        )
+
         func groupKey(for node: ConceptNode) -> String {
             if node.level == .entity, let parentID = parentConceptByEntity[node.id] {
                 return parentID.uuidString
@@ -88,23 +105,20 @@ class ForceDirectedLayout {
         let groups = Dictionary(grouping: nodes, by: { groupKey(for: $0) })
         let groupNames = groups.keys.sorted()
         var groupCenters: [String: CGPoint] = [:]
-
-        // Grid placement for all groups (no tree seeding under the 4-level model yet).
-        if groupCenters.count < groupNames.count {
-            let cols = max(Int(ceil(sqrt(Double(groupNames.count)))), 2)
-            let cellW = virtualSize.width / Double(cols + 1)
-            let cellH = virtualSize.height / Double(max(groupNames.count / cols + 1, 2))
-            for (i, name) in groupNames.enumerated() where groupCenters[name] == nil {
-                let col = i % cols
-                let row = i / cols
-                groupCenters[name] = CGPoint(
-                    x: cellW * (Double(col) + 1),
-                    y: cellH * (Double(row) + 1)
-                )
-            }
+        // Group centers fall on the band of the first member node (used by
+        // group attraction during FDL iteration so members are pulled to a
+        // representative point within their band).
+        for (gk, members) in groups {
+            guard let first = members.first else { continue }
+            let bandY = LevelBandSeeder.bandY(for: first.level, canvasHeight: virtualSize.height)
+            let xs = members.compactMap { seedPositions[$0.id]?.x }
+            let centerX = xs.isEmpty ? virtualSize.width / 2 : xs.reduce(0, +) / Double(xs.count)
+            groupCenters[gk] = CGPoint(x: centerX, y: bandY)
         }
+        _ = groupNames  // retained for ordering parity; group centers above are keyed by groupKey
 
-        // Initialize positions
+        // Initialize positions (only for newly-seen nodes — existing entries
+        // are kept untouched so tab switches don't move them).
         for node in nodes {
             let gk = groupKey(for: node)
             if positions[node.id] == nil {
@@ -113,15 +127,15 @@ class ForceDirectedLayout {
                 } else if let existing = node.position {
                     positions[node.id] = NodePosition(x: existing.x, y: existing.y, group: gk)
                 } else if let seed = seedPositions[node.id] {
-                    // Tree-seeded concept: small jitter so FDL has a gradient
-                    let jitterX = Double.random(in: -20...20)
-                    let jitterY = Double.random(in: -20...20)
+                    // Band-seeded: small jitter so FDL has a gradient
+                    let jitterX = Double.random(in: -10...10)
+                    let jitterY = Double.random(in: -10...10)
                     positions[node.id] = NodePosition(x: seed.x + jitterX, y: seed.y + jitterY, group: gk)
                 } else {
-                    // Group-center placement (entities, or no-hierarchy fallback)
+                    // Fallback (level missing from seeder): canvas center
                     let center = groupCenters[gk] ?? CGPoint(x: virtualSize.width / 2, y: virtualSize.height / 2)
-                    let jitterX = Double.random(in: -80...80)
-                    let jitterY = Double.random(in: -80...80)
+                    let jitterX = Double.random(in: -40...40)
+                    let jitterY = Double.random(in: -40...40)
                     positions[node.id] = NodePosition(x: center.x + jitterX, y: center.y + jitterY, group: gk)
                 }
             } else {
@@ -129,8 +143,12 @@ class ForceDirectedLayout {
             }
         }
 
-        let nodeIDs = Set(nodes.map { $0.id })
-        positions = positions.filter { nodeIDs.contains($0.key) }
+        // Preserve positions for nodes outside the current visible-set so
+        // tab switches don't lose them — but evict positions for nodes that
+        // are no longer in the full graph (caller passes validNodeIDs).
+        if let validIDs = validNodeIDs {
+            positions = positions.filter { validIDs.contains($0.key) }
+        }
 
         isConverged = false
         iteration = 0
