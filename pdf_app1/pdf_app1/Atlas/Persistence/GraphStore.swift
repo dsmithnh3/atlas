@@ -196,13 +196,20 @@ class GraphStore {
         // item held the KnowledgeGraph reference and called encode() on
         // the background queue, racing against ongoing mutations to
         // nodes/edges from the actor that owns the graph.
+        //
+        // Filtered to this document's anchored nodes (+ edges between
+        // them) so per-doc files don't denormalize the whole project
+        // graph under the 4-level multi-doc memory model.
         let payload: Data
-        let nodeCount = graph.nodeCount
-        let edgeCount = graph.edgeCount
+        let nodeCount: Int
+        let edgeCount: Int
         do {
-            payload = try graph.encode()
+            let snapshot = try graph.encodeSubgraph(for: documentURL)
+            payload = snapshot.data
+            nodeCount = snapshot.nodeCount
+            edgeCount = snapshot.edgeCount
         } catch {
-            log.error("[GraphStore] Failed to encode graph for \(documentURL.lastPathComponent): \(error)")
+            log.error("[GraphStore] Failed to encode subgraph for \(documentURL.lastPathComponent): \(error)")
             return
         }
 
