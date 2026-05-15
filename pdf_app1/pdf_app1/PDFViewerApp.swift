@@ -7,6 +7,7 @@
 
 import SwiftUI
 import AppKit
+import os.log
 
 @main
 struct PDFViewerApp: App {
@@ -15,6 +16,8 @@ struct PDFViewerApp: App {
     @StateObject private var documentManager: DocumentManager
     @State private var knowledgeGraph = KnowledgeGraph()
     @State private var aiServiceManager = AIServiceManager()
+    /// Guards against re-sweeping if `didLoadInitialState` re-fires for any reason.
+    @State private var didSweepOrphans = false
 
     init() {
         let recent = RecentFilesManager()
@@ -34,8 +37,19 @@ struct PDFViewerApp: App {
                 .onAppear {
                     documentManager.restoreOpenSession()
                     configureWindow()
+                    // If projects loaded synchronously (e.g. cached state), trigger
+                    // the sweep right now; otherwise the onChange below will catch it.
+                    if projectsManager.didLoadInitialState {
+                        runGraphOrphanSweep()
+                    }
+                }
+                .onChange(of: projectsManager.didLoadInitialState) { _, loaded in
+                    if loaded {
+                        runGraphOrphanSweep()
+                    }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    AtlasLogger.ui.info("[App] willTerminate: flushing session + graph save")
                     documentManager.saveOpenSession()
                     GraphStore.shared.flushPendingSave()
                 }
@@ -90,6 +104,25 @@ struct PDFViewerApp: App {
         }
     }
     
+    /// Scan the on-disk graph store and delete per-document graphs that no
+    /// longer correspond to any open tab, recent file, or project file.
+    /// Runs once per launch, after `ProjectsManager` finishes its async load
+    /// so we don't accidentally GC graphs whose owning project hasn't been
+    /// hydrated yet.
+    private func runGraphOrphanSweep() {
+        guard !didSweepOrphans else { return }
+        didSweepOrphans = true
+
+        var alive: Set<URL> = []
+        alive.formUnion(documentManager.documents.map { $0.url })
+        alive.formUnion(recentFilesManager.recentFiles)
+        alive.formUnion(projectsManager.allFileURLsForSweep())
+
+        AtlasLogger.ui.info("[App] runGraphOrphanSweep: alive set = \(documentManager.documents.count) open + \(recentFilesManager.recentFiles.count) recent + \(projectsManager.projects.reduce(0) { $0 + $1.files.count }) project file(s) → \(alive.count) unique URL(s)")
+        let deleted = GraphStore.shared.sweepOrphans(aliveURLs: alive)
+        AtlasLogger.ui.info("[App] runGraphOrphanSweep: deleted \(deleted) orphan graph(s)")
+    }
+
     /// Configure window to open maximized/fullscreen by default
     private func configureWindow() {
         DispatchQueue.main.async {

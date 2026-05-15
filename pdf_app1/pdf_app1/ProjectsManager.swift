@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import Combine
+import os.log
+
+private let log = AtlasLogger.ui
 
 protocol ProjectBookmarking {
     func createBookmark(for url: URL) -> Data?
@@ -102,6 +105,9 @@ final class ProjectsManager: ObservableObject {
     @Published private(set) var projects: [Project] = []
     @Published var selectedProjectID: UUID?
     @Published var projectsSortMode: ProjectsSortMode = .manual
+    /// Flips to `true` after the async `load()` completes (file present or not).
+    /// Lets startup work (e.g. graph orphan sweep) wait until project state is hydrated.
+    @Published private(set) var didLoadInitialState = false
 
     private let storageURL: URL
     private let bookmarker: ProjectBookmarking
@@ -340,16 +346,53 @@ final class ProjectsManager: ObservableObject {
             // No file (or unreadable) → leave the freshly-initialized defaults in place.
             // Previously this branch overwrote whatever the caller had set between init
             // and the async hop, racing post-init mutations.
+            let fileExists = FileManager.default.fileExists(atPath: url.path)
             guard let data = try? Data(contentsOf: url),
                   let storage = try? JSONDecoder().decode(ProjectsStorage.self, from: data) else {
+                DispatchQueue.main.async {
+                    if fileExists {
+                        log.warning("[ProjectsManager] load: \(url.path, privacy: .public) exists but decode failed — using empty defaults")
+                    } else {
+                        log.info("[ProjectsManager] load: no projects.json yet (fresh state)")
+                    }
+                    self.didLoadInitialState = true
+                }
                 return
             }
             DispatchQueue.main.async {
                 self.projects = storage.projects
                 self.selectedProjectID = storage.selectedProjectID ?? storage.projects.first?.id
                 self.projectsSortMode = storage.projectsSortMode
+                self.didLoadInitialState = true
+                let fileTotal = storage.projects.reduce(0) { $0 + $1.files.count }
+                log.info("[ProjectsManager] load: \(storage.projects.count) project(s), \(fileTotal) file(s) total; selected=\(self.selectedProjectID?.uuidString.prefix(8).description ?? "nil", privacy: .public)")
             }
         }
+    }
+
+    /// Resolves every project file's bookmark to a URL without mutating state.
+    /// Returns both the bookmark-resolved URL and a `lastKnownPath`-based fallback
+    /// when they differ, so a launch-time orphan sweep doesn't accidentally GC
+    /// a graph for a file whose path canonicalization (`/var` ↔ `/private/var`)
+    /// differs between bookmark and stored path forms.
+    func allFileURLsForSweep() -> [URL] {
+        var urls: [URL] = []
+        for project in projects {
+            for file in project.files {
+                var isStale = false
+                let resolved = bookmarker.resolveBookmark(file.bookmarkData, isStale: &isStale)
+                let fallback = URL(fileURLWithPath: file.lastKnownPath)
+                if let resolved {
+                    urls.append(resolved)
+                    if resolved.absoluteString != fallback.absoluteString {
+                        urls.append(fallback)
+                    }
+                } else {
+                    urls.append(fallback)
+                }
+            }
+        }
+        return urls
     }
 
     private func save() {
