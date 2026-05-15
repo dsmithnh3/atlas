@@ -89,6 +89,13 @@ class ExtractionPipeline {
             statusMessage = "Generating document summary..."
             await Self.appendDocumentSummary(graph: graph, documentURL: documentURL, backend: backend)
 
+            // L2: aggregate concept-level edges into chapter-level edges so
+            // the Chapter tab isn't a graveyard of isolated nodes.
+            let synthesized = ChapterEdgeAggregation.synthesize(in: graph)
+            if synthesized > 0 {
+                log.info("[Pipeline] Synthesized \(synthesized) chapter-level aggregated edge(s)")
+            }
+
             statusMessage = deepPipeline.statusMessage
             isProcessing = false
             graph.documentProcessingState[documentURL] = .complete
@@ -173,6 +180,13 @@ class ExtractionPipeline {
         // its chapters via containsChapter edges.
         statusMessage = "Generating document summary..."
         await Self.appendDocumentSummary(graph: graph, documentURL: documentURL, backend: backend)
+
+        // L2: aggregate concept-level edges into chapter-level edges so
+        // the Chapter tab isn't a graveyard of isolated nodes.
+        let synthesized = ChapterEdgeAggregation.synthesize(in: graph)
+        if synthesized > 0 {
+            log.info("[Pipeline] Synthesized \(synthesized) chapter-level aggregated edge(s)")
+        }
 
         isProcessing = false
         statusMessage = "Done — \(graph.nodeCount) concepts extracted"
