@@ -1414,7 +1414,11 @@ struct MultiDocumentView: View {
 
     // MARK: - Graph Persistence
 
-    /// Load the persisted graph for a document, replacing any in-memory graph from a previously-active document.
+    /// Load the persisted graph for `documentURL` and merge it into the
+    /// in-memory project graph (preserving nodes loaded for other open
+    /// tabs). Uses `mergeSubgraph` to defensively scope each per-doc file
+    /// to its own anchored nodes — legacy bloated files written before B4
+    /// get cleaned on load.
     private func loadGraphIfNeeded(for documentURL: URL) {
         let alreadyHasNodes = knowledgeGraph.allNodes.contains { node in
             node.sourceAnchors.contains { $0.documentURL == documentURL }
@@ -1424,17 +1428,16 @@ struct MultiDocumentView: View {
             return
         }
 
-        if let payload = GraphStore.shared.loadPayload(for: documentURL) {
-            do {
-                try knowledgeGraph.decode(from: payload)
-                AtlasLogger.graph.info("[MultiDocView] loadGraphIfNeeded: hydrated graph for \(documentURL.lastPathComponent) (\(knowledgeGraph.nodeCount) nodes, \(knowledgeGraph.edgeCount) edges)")
-            } catch {
-                AtlasLogger.graph.error("[MultiDocView] loadGraphIfNeeded: decode failed for \(documentURL.lastPathComponent): \(error)")
-                knowledgeGraph.clear()
-            }
-        } else {
-            AtlasLogger.graph.info("[MultiDocView] loadGraphIfNeeded: no saved graph for \(documentURL.lastPathComponent) — clearing in-memory graph")
-            knowledgeGraph.clear()
+        guard let payload = GraphStore.shared.loadPayload(for: documentURL) else {
+            AtlasLogger.graph.info("[MultiDocView] loadGraphIfNeeded: no saved graph for \(documentURL.lastPathComponent) — leaving in-memory graph unchanged")
+            return
+        }
+
+        do {
+            let merged = try knowledgeGraph.mergeSubgraph(from: payload, scopedTo: documentURL)
+            AtlasLogger.graph.info("[MultiDocView] loadGraphIfNeeded: merged \(merged.nodeCount) nodes / \(merged.edgeCount) edges for \(documentURL.lastPathComponent) → \(knowledgeGraph.nodeCount) nodes, \(knowledgeGraph.edgeCount) edges total")
+        } catch {
+            AtlasLogger.graph.error("[MultiDocView] loadGraphIfNeeded: decode failed for \(documentURL.lastPathComponent): \(error)")
         }
     }
 
