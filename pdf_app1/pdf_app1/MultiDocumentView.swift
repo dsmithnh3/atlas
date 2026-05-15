@@ -1001,18 +1001,33 @@ struct MultiDocumentView: View {
                                 activeNodeID: syncManager.activeNodeID
                             )
                             if isChatVisible, let vm = chatViewModel {
-                                Divider()
+                                ZStack {
+                                    Rectangle()
+                                        .fill(Color(nsColor: .separatorColor))
+                                        .frame(width: 1)
+                                    Button(action: { toggleChat() }) {
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 14, height: 36)
+                                            .background(.regularMaterial, in: Capsule())
+                                            .overlay(Capsule().stroke(Color(nsColor: .separatorColor), lineWidth: 0.5))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Hide chat (⌘4)")
+                                }
+                                .frame(width: 16)
                                 ChatPanelView(viewModel: vm)
                                     .frame(minWidth: 280, idealWidth: 320, maxWidth: 400)
                             }
                         }
                         .overlay(alignment: .bottomTrailing) {
-                            if !isChatVisible, let vm = chatViewModel {
+                            if !isChatVisible && aiService.isConfigured {
                                 Button(action: { toggleChat() }) {
                                     HStack(spacing: 4) {
                                         Image(systemName: "bubble.left.and.text.bubble.right")
                                             .font(.body)
-                                        if vm.messages.count > 0 {
+                                        if let vm = chatViewModel, vm.messages.count > 0 {
                                             Text("\(vm.messages.count)")
                                                 .font(.caption)
                                                 .monospacedDigit()
