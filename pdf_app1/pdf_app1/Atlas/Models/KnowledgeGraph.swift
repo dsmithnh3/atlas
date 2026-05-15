@@ -418,6 +418,48 @@ extension KnowledgeGraph {
         let nodes: [ConceptNode]
         let edges: [GraphEdge]
         let documentProcessingState: [String: ProcessingState]
+
+        private enum CodingKeys: String, CodingKey {
+            case nodes, edges, documentProcessingState
+        }
+
+        init(
+            nodes: [ConceptNode],
+            edges: [GraphEdge],
+            documentProcessingState: [String: ProcessingState]
+        ) {
+            self.nodes = nodes
+            self.edges = edges
+            self.documentProcessingState = documentProcessingState
+        }
+
+        // Lossy decode for edges: a single retired EdgeType (e.g. `subtopicOf`
+        // left over from before the 4-level migration) used to throw and the
+        // load site's catch ran `clear()` — wiping every doc's graph in
+        // memory. We now skip unknown edges and keep the rest of the graph.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            nodes = try c.decode([ConceptNode].self, forKey: .nodes)
+            documentProcessingState = try c.decodeIfPresent(
+                [String: ProcessingState].self,
+                forKey: .documentProcessingState
+            ) ?? [:]
+
+            let wrapped = try c.decode([LossyEdge].self, forKey: .edges)
+            let kept = wrapped.compactMap(\.value)
+            let skipped = wrapped.count - kept.count
+            if skipped > 0 {
+                log.warning("[GraphStore] Skipped \(skipped, privacy: .public) edge(s) with unknown types during decode")
+            }
+            edges = kept
+        }
+    }
+
+    private struct LossyEdge: Decodable {
+        let value: GraphEdge?
+        init(from decoder: Decoder) throws {
+            value = try? GraphEdge(from: decoder)
+        }
     }
 
     func encode() throws -> Data {
