@@ -150,12 +150,23 @@ class MapInteraction {
 
     // MARK: - Fit to Content
 
-    func fitToContent(layout: ForceDirectedLayout, canvasSize: CGSize) {
-        guard !isDragging, let first = layout.positions.values.first else { return }
+    func fitToContent(
+        layout: ForceDirectedLayout,
+        canvasSize: CGSize,
+        visibleIDs: Set<UUID>? = nil
+    ) {
+        guard !isDragging else { return }
+        let relevant: [NodePosition]
+        if let ids = visibleIDs {
+            relevant = layout.positions.compactMap { ids.contains($0.key) ? $0.value : nil }
+        } else {
+            relevant = Array(layout.positions.values)
+        }
+        guard let first = relevant.first else { return }
 
         var minX = first.x, maxX = first.x
         var minY = first.y, maxY = first.y
-        for pos in layout.positions.values.dropFirst() {
+        for pos in relevant.dropFirst() {
             if pos.x < minX { minX = pos.x }
             if pos.x > maxX { maxX = pos.x }
             if pos.y < minY { minY = pos.y }
