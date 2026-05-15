@@ -207,6 +207,46 @@ final class FourLevelGraphTests: XCTestCase {
         XCTAssertEqual(restored.allEdges.map(\.type), [.dependsOn])
     }
 
+    // MARK: - Per-doc subgraph merge (B4)
+
+    func test_mergeSubgraph_preservesExistingNodesFromOtherDocuments() throws {
+        let urlA = docURL("a.pdf")
+        let urlB = docURL("b.pdf")
+        let nodeA = ConceptNode(label: "A-node", sourceAnchors: [anchor(urlA)], level: .concept)
+        let nodeB = ConceptNode(label: "B-node", sourceAnchors: [anchor(urlB)], level: .concept)
+
+        // Tab 1 already loaded — receiver has A's node in memory.
+        let inMemory = KnowledgeGraph()
+        inMemory.addNode(nodeA)
+
+        // Tab 2's per-doc file contains B's node.
+        let bGraph = KnowledgeGraph()
+        bGraph.addNode(nodeB)
+        let payload = try bGraph.encodeSubgraph(for: urlB).data
+
+        try inMemory.mergeSubgraph(from: payload, scopedTo: urlB)
+        XCTAssertEqual(Set(inMemory.allNodes.map(\.label)), ["A-node", "B-node"],
+                       "Tab 1's node should survive Tab 2's load")
+    }
+
+    func test_mergeSubgraph_dropsForeignAnchoredNodesFromLegacyBloatedPayload() throws {
+        let urlA = docURL("a.pdf")
+        let urlB = docURL("b.pdf")
+        let nodeA = ConceptNode(label: "A-node", sourceAnchors: [anchor(urlA)], level: .concept)
+        let nodeB = ConceptNode(label: "B-node", sourceAnchors: [anchor(urlB)], level: .concept)
+
+        // Simulate a pre-B4 bloated per-doc file: A's file on disk also
+        // contains B's nodes (the bug being fixed).
+        let bloated = KnowledgeGraph()
+        bloated.addNode(nodeA); bloated.addNode(nodeB)
+        let payload = try bloated.encode()  // full encode, not subgraph — recreates the bloat
+
+        let receiver = KnowledgeGraph()
+        try receiver.mergeSubgraph(from: payload, scopedTo: urlA)
+        XCTAssertEqual(receiver.allNodes.map(\.label), ["A-node"],
+                       "Foreign B-anchored node should be stripped when scoping to A")
+    }
+
     // MARK: - Lossy edge decode (B5)
 
     func test_decode_skipsEdgesWithRetiredEdgeType_keepsNodesAndOtherEdges() throws {

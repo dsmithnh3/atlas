@@ -502,6 +502,32 @@ extension KnowledgeGraph {
         return (data, scopedNodes.count, scopedEdges.count)
     }
 
+    /// Decode `data` and merge only the nodes anchored in `documentURL`
+    /// (plus their edges) into the receiver. Defensive against legacy
+    /// per-doc files written before B4 that contain other docs' nodes too.
+    /// Unlike `decode(from:)`, this does NOT clear the receiver — existing
+    /// nodes from other documents survive (necessary for the project-wide
+    /// in-memory graph).
+    @discardableResult
+    func mergeSubgraph(from data: Data, scopedTo documentURL: URL) throws -> (nodeCount: Int, edgeCount: Int) {
+        let rep = try JSONDecoder().decode(CodableRepresentation.self, from: data)
+        let scopedNodes = rep.nodes.filter { node in
+            node.sourceAnchors.contains { $0.documentURL == documentURL }
+        }
+        let scopedIDs = Set(scopedNodes.map(\.id))
+        let scopedEdges = rep.edges.filter { edge in
+            scopedIDs.contains(edge.sourceNodeID) && scopedIDs.contains(edge.targetNodeID)
+        }
+        let scratch = KnowledgeGraph()
+        for node in scopedNodes { scratch.addNode(node) }
+        for edge in scopedEdges { scratch.addEdge(edge) }
+        if let state = rep.documentProcessingState[documentURL.absoluteString] {
+            scratch.documentProcessingState[documentURL] = state
+        }
+        self.merge(from: scratch)
+        return (scopedNodes.count, scopedEdges.count)
+    }
+
     func decode(from data: Data) throws {
         let decoder = JSONDecoder()
         let rep = try decoder.decode(CodableRepresentation.self, from: data)
