@@ -108,6 +108,13 @@ struct PDFViewRepresentable: NSViewRepresentable {
         context.coordinator.highlightColor = highlightColor
         context.coordinator.onAnnotationError = onAnnotationError
         context.coordinator.undoRedoManager = undoRedoManager
+        // Closures capture `pdfDocument` / call-site `@State` from the view
+        // struct; each render builds fresh ones. Refresh them on the
+        // coordinator so callbacks fire against the current document
+        // instead of tab-1's stale capture.
+        context.coordinator.onPageChanged = onPageChanged
+        context.coordinator.onAnnotationsChanged = onAnnotationsChanged
+        context.coordinator.onTextAnnotationRequest = onTextAnnotationRequest
 
         if previousMode != annotationMode {
             // Update gesture recognizer state only when mode changes
@@ -154,9 +161,9 @@ struct PDFViewRepresentable: NSViewRepresentable {
         var annotationMode: AnnotationMode
         var highlightColor: Color
         var undoRedoManager: UndoRedoManager
-        let onAnnotationsChanged: () -> Void
-        let onTextAnnotationRequest: (CGPoint) -> Void
-        let onPageChanged: (PDFPage?) -> Void
+        var onAnnotationsChanged: () -> Void
+        var onTextAnnotationRequest: (CGPoint) -> Void
+        var onPageChanged: (PDFPage?) -> Void
         var onAnnotationError: ((String) -> Void)?
         var highlightStartPoint: CGPoint?
         var currentHighlight: PDFAnnotation?
