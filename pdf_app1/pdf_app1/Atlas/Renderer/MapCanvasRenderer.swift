@@ -91,7 +91,7 @@ struct MapCanvasRenderer: View {
 
             // Skip structural containment edges (drawn implicitly via cluster
             // backgrounds, not as explicit connectors).
-            if edge.type.isContainment || edge.type == .subtopicOf { continue }
+            if edge.type.isContainment { continue }
 
             context.stroke(path, with: .color(edge.type.color.opacity(alpha)), lineWidth: 1.2)
 

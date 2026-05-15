@@ -92,13 +92,12 @@ enum EdgeType: String, Codable, CaseIterable, Hashable {
     case sameTopic
     case partOf
     case uses
-    case containsEntity
-    case subtopicOf        // TODO(4-level migration): retire; absorbed into .containsConcept (Chapter → Concept).
     // Containment edges express the 4-level fold. Each adjacent pair of
     // levels uses its own edge type so renderer filters can hide them or
     // style them consistently (e.g. drawn faintly, no linkingPhrase label).
     case containsChapter   // Document → Chapter
     case containsConcept   // Chapter → Concept
+    case containsEntity    // Concept → Entity
 
     var displayName: String {
         switch self {
@@ -111,7 +110,6 @@ enum EdgeType: String, Codable, CaseIterable, Hashable {
         case .sameTopic: return "Same Topic"
         case .partOf: return "Part Of"
         case .uses: return "Uses"
-        case .subtopicOf: return "Subtopic Of"
         case .containsChapter, .containsConcept, .containsEntity: return "Contains"
         }
     }
@@ -127,7 +125,6 @@ enum EdgeType: String, Codable, CaseIterable, Hashable {
         case .sameTopic: return .cyan
         case .partOf: return .indigo
         case .uses: return .mint
-        case .subtopicOf: return .brown
         case .containsChapter, .containsConcept, .containsEntity: return .secondary
         }
     }

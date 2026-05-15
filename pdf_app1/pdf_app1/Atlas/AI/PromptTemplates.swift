@@ -21,7 +21,7 @@ enum PromptTemplates {
             : "\nDocument outline hints: \(context.outlineHints.joined(separator: " > "))"
 
         return """
-        You are a concept map extraction system following Novak's methodology. Analyze the following text from "\(context.documentTitle)" (pages \(context.pageRange.lowerBound + 1)-\(context.pageRange.upperBound)) and extract a hierarchical concept map.
+        You are a concept map extraction system. Analyze the following text from "\(context.documentTitle)" (pages \(context.pageRange.lowerBound + 1)-\(context.pageRange.upperBound)) and extract concepts, their entities, and relationships between concepts.
         \(outlineHints)
 
         Already extracted concepts (do not duplicate): \(existingList)
@@ -30,42 +30,40 @@ enum PromptTemplates {
 
         A concept map is a network of PROPOSITIONS. Each proposition is a triple: Concept A —[linking phrase]→ Concept B that reads as a meaningful sentence. For example: "Glycolysis" —[produces]→ "Pyruvate" reads as "Glycolysis produces Pyruvate."
 
+        Concepts have nested **entities** — specific terms, definitions, people, examples, results, equations — that belong under them.
+
         ## Extraction Rules
 
-        1. Identify 5-6 TOP THEMES (hierarchyLevel 0) — these are the broadest ideas or processes in the text. Label them as short readable noun phrases (2-6 words).
+        1. Identify 3-8 CONCEPTS in this batch — coherent ideas, topics, or processes. Label them as short readable noun phrases (2-6 words). Concepts should be readable noun phrases, NOT full sentences. Good: "ATP production", "Krebs cycle enzymes". Bad: "ATP is produced by oxidative phosphorylation".
 
-        2. For each theme, identify 3-8 SUB-CONCEPTS (hierarchyLevel 1+) — these are more specific ideas that fall under a theme. Each sub-concept must specify its parent theme via subtopicOf.
+        2. For each concept, identify 1-5 ENTITIES — specific terms, definitions, examples, people, results, equations — that belong under it. Each entity must have its own textSpan.
 
-        3. Every concept (theme or sub-concept) MUST have a textSpan that is an EXACT verbatim quote from the text. If you cannot find an exact quote, do not include that concept.
+        3. Every concept and entity MUST have a textSpan that is an EXACT verbatim quote from the text. If you cannot find an exact quote, do not include that concept or entity.
 
-        4. Propose edges between concepts. Each edge MUST have a linkingPhrase — a short verb phrase (1-4 words MAX) that makes "sourceLabel [linkingPhrase] targetLabel" read as a grammatical sentence. Good: "produces", "requires", "inhibits", "is a type of". Bad: "is far less efficient than aerobic respiration in producing" (too long — rephrase as "yields less than").
+        4. Propose edges between concepts. Each edge MUST have a linkingPhrase — a short verb phrase (1-4 words MAX) that makes "sourceLabel [linkingPhrase] targetLabel" read as a grammatical sentence. Good: "produces", "requires", "inhibits", "is a type of". Bad: "is far less efficient than aerobic respiration in producing" (too long).
 
         5. Do not invent concepts not present in the text. Prefer specific, concrete concepts over vague abstractions.
 
-        6. Concept labels should be readable noun phrases, NOT full sentences. Good: "ATP production", "Krebs cycle enzymes". Bad: "ATP is produced by oxidative phosphorylation".
-
         ## JSON Schema
 
-        EVERY field below is REQUIRED. Do not omit any field. Return ONLY a JSON object with this exact structure:
+        Return ONLY a JSON object with this exact structure:
         {
           "concepts": [
             {
-              "label": "Readable Noun Phrase (2-6 words)",
+              "label": "Concept Name (2-6 words)",
               "type": "concept",
               "summary": "One sentence explaining this concept",
               "textSpan": "exact verbatim quote from text",
               "confidence": 0.95,
-              "hierarchyLevel": 0,
-              "subtopicOf": null
-            },
-            {
-              "label": "More Specific Sub-concept",
-              "type": "concept",
-              "summary": "One sentence explanation",
-              "textSpan": "exact verbatim quote from text",
-              "confidence": 0.9,
-              "hierarchyLevel": 1,
-              "subtopicOf": "Parent Theme Label"
+              "entities": [
+                {
+                  "label": "Specific Entity Name",
+                  "type": "definition",
+                  "summary": "One sentence explanation",
+                  "textSpan": "exact verbatim quote from text",
+                  "confidence": 0.9
+                }
+              ]
             }
           ],
           "edges": [
@@ -79,11 +77,15 @@ enum PromptTemplates {
           ]
         }
 
-        REQUIRED concept fields: label, type, summary, textSpan, confidence, hierarchyLevel, subtopicOf
+        REQUIRED concept fields: label, type, summary, textSpan, confidence
+        REQUIRED entity fields: label, type, summary, textSpan, confidence
         REQUIRED edge fields: sourceLabel, targetLabel, type, confidence, linkingPhrase
-        hierarchyLevel: 0 = top theme, 1 = direct sub-concept, 2 = sub-sub-concept (rarely needed)
+        Concept types: concept, theorem, method, claim
+        Entity types: definition, example, person, dataset, result, equation
         Edge types: dependsOn, contradicts, exampleOf, defines, extends, cites, sameTopic, partOf, uses
         linkingPhrase: 1-4 word verb phrase making "A [phrase] B" a readable sentence
+
+        Note: Document and Chapter abstraction levels are extracted by separate dedicated passes. Do not produce them here — only concepts and their entities.
 
         Return valid JSON only, no markdown formatting.
 
@@ -270,19 +272,20 @@ enum PromptTemplates {
         ## Instructions
 
         Propose edges between concepts. Consider:
-        - Hierarchical relationships (subtopicOf): one concept is a subtopic of another
         - Dependency relationships (dependsOn): one concept requires understanding another
         - Similarity (sameTopic): concepts that overlap significantly
-        - Other relationships: contradicts, extends, uses, defines, exampleOf, partOf
+        - Other relationships: contradicts, extends, uses, defines, exampleOf, partOf, cites
 
-        Edge types: dependsOn, contradicts, exampleOf, defines, extends, cites, sameTopic, partOf, uses, subtopicOf
+        Edge types: dependsOn, contradicts, exampleOf, defines, extends, cites, sameTopic, partOf, uses
+
+        Note: structural fold edges (containsChapter, containsConcept, containsEntity) are produced by dedicated passes and must not appear here.
 
         Return ONLY a JSON array:
         [
           {
             "sourceLabel": "...",
             "targetLabel": "...",
-            "type": "subtopicOf|dependsOn|...",
+            "type": "dependsOn|sameTopic|...",
             "confidence": 0.9
           }
         ]
