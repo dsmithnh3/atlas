@@ -178,17 +178,84 @@ class GraphStore {
 
     func deleteGraph(for documentURL: URL) {
         let fileURL = graphFileURL(for: documentURL)
-        try? fileManager.removeItem(at: fileURL)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            log.info("[GraphStore] deleteGraph: no graph on disk for \(documentURL.lastPathComponent)")
+            return
+        }
+        do {
+            try fileManager.removeItem(at: fileURL)
+            log.info("[GraphStore] deleteGraph: removed \(fileURL.lastPathComponent) for \(documentURL.lastPathComponent)")
+        } catch {
+            log.error("[GraphStore] deleteGraph: failed for \(documentURL.lastPathComponent): \(error)")
+        }
     }
 
     func deleteProjectGraph(projectID: UUID) {
         let fileURL = projectGraphFileURL(for: projectID)
-        try? fileManager.removeItem(at: fileURL)
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            log.info("[GraphStore] deleteProjectGraph: no graph on disk for project \(projectID.uuidString.prefix(8))")
+            return
+        }
+        do {
+            try fileManager.removeItem(at: fileURL)
+            log.info("[GraphStore] deleteProjectGraph: removed graph for project \(projectID.uuidString.prefix(8))")
+        } catch {
+            log.error("[GraphStore] deleteProjectGraph: failed for project \(projectID): \(error)")
+        }
     }
 
     // MARK: - Query
 
     func hasGraph(for documentURL: URL) -> Bool {
         fileManager.fileExists(atPath: graphFileURL(for: documentURL).path)
+    }
+
+    // MARK: - Orphan Sweep
+
+    /// Deletes per-document graph files whose URL hash is not in `aliveURLs`.
+    /// Project graphs (`project_*.json`) are skipped — those have their own
+    /// lifecycle tied to `ProjectsManager.deleteProject`.
+    /// Returns the number of files deleted.
+    @discardableResult
+    func sweepOrphans(aliveURLs: Set<URL>) -> Int {
+        let aliveHashes = Set(aliveURLs.map { $0.absoluteString.sha256HexPrefix16 })
+        log.info("[GraphStore] sweepOrphans: \(aliveURLs.count) alive URL(s) → \(aliveHashes.count) unique hash(es)")
+
+        let contents: [URL]
+        do {
+            contents = try fileManager.contentsOfDirectory(at: graphsDirectory, includingPropertiesForKeys: [.fileSizeKey])
+        } catch {
+            log.error("[GraphStore] sweepOrphans: failed to list \(self.graphsDirectory.path): \(error)")
+            return 0
+        }
+
+        var scanned = 0
+        var deleted = 0
+        var freedBytes: Int = 0
+        var keptCount = 0
+        for fileURL in contents {
+            let name = fileURL.lastPathComponent
+            if name.hasPrefix("project_") { continue }      // project graphs have a separate lifecycle
+            guard name.hasSuffix(".json") else { continue }
+            scanned += 1
+
+            let hash = String(name.dropLast(".json".count))
+            if aliveHashes.contains(hash) {
+                keptCount += 1
+                continue
+            }
+
+            let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            do {
+                try fileManager.removeItem(at: fileURL)
+                deleted += 1
+                freedBytes += size
+                log.info("[GraphStore] sweepOrphans: deleted orphan \(name) (\(size) bytes)")
+            } catch {
+                log.error("[GraphStore] sweepOrphans: failed to delete \(name): \(error)")
+            }
+        }
+        log.info("[GraphStore] sweepOrphans: scanned=\(scanned) kept=\(keptCount) deleted=\(deleted) freedBytes=\(freedBytes)")
+        return deleted
     }
 }
