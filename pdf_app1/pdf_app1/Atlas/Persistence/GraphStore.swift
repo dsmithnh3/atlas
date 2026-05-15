@@ -142,10 +142,11 @@ class GraphStore {
                 skipped += 1
                 continue
             }
-            let docGraph = KnowledgeGraph()
             do {
-                try docGraph.decode(from: payload)
-                merged.merge(from: docGraph)
+                // Scope to nodes anchored in `url` to defensively strip
+                // cross-doc bloat from legacy per-doc files written before
+                // B4's save-side filter.
+                try merged.mergeSubgraph(from: payload, scopedTo: url)
                 loaded += 1
             } catch {
                 log.error("[GraphStore] loadProjectWideGraph: decode failed for \(url.lastPathComponent): \(error)")
