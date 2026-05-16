@@ -166,6 +166,36 @@ class RecentFilesManager: ObservableObject {
         removeFiles(at: IndexSet(integer: index))
     }
     
+    /// Back-end of the "Locate…" recovery flow. When the user re-grants
+    /// access to a previously inaccessible recent via NSOpenPanel, mint a
+    /// fresh bookmark for the picked URL, swap it in at the same index, and
+    /// clear the inaccessible flag + stale-launch counter keyed on the old
+    /// path. Returns false on out-of-range index or createBookmark failure.
+    @discardableResult
+    func replaceBookmark(at index: Int, with newURL: URL) -> Bool {
+        guard index >= 0, index < recentFiles.count else { return false }
+        guard let newBookmark = bookmarker.createBookmark(for: newURL) else { return false }
+
+        var bookmarks: [Data] = []
+        if let existingData = userDefaults.data(forKey: userDefaultsKey),
+           let decoded = try? JSONDecoder().decode([Data].self, from: existingData) {
+            bookmarks = decoded
+        }
+        guard index < bookmarks.count else { return false }
+
+        let oldPath = recentFiles[index].path
+        bookmarks[index] = newBookmark
+        recentFiles[index] = newURL
+        inaccessibleFiles.remove(index)
+
+        var counter = userDefaults.dictionary(forKey: staleLaunchCounterKey) as? [String: Int] ?? [:]
+        counter.removeValue(forKey: oldPath)
+        userDefaults.set(counter, forKey: staleLaunchCounterKey)
+
+        saveBookmarks(bookmarks)
+        return true
+    }
+
     /// Load recent files from bookmarks. Bookmarks that can't be resolved
     /// right now are kept on disk and surfaced via the path embedded in the
     /// bookmark blob (`pathFromBookmark`), marked inaccessible so the existing
