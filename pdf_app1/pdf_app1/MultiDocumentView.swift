@@ -946,6 +946,15 @@ struct MultiDocumentView: View {
                                         )
                                     }
                                 }
+
+                                if isInaccessible {
+                                    Button("Locate…") {
+                                        locateInaccessibleRecent(at: index, originalURL: url)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .controlSize(.small)
+                                    .help("Re-grant access to this file")
+                                }
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -966,6 +975,43 @@ struct MultiDocumentView: View {
         }
     }
     
+    private func locateInaccessibleRecent(at index: Int, originalURL: URL) {
+        let panel = NSOpenPanel()
+        panel.title = "Locate \(originalURL.lastPathComponent)"
+        panel.message = "Re-grant access to “\(originalURL.lastPathComponent)”"
+        panel.prompt = "Grant Access"
+        panel.allowedContentTypes = [.pdf]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = originalURL.deletingLastPathComponent()
+        panel.nameFieldStringValue = originalURL.lastPathComponent
+        panel.begin { response in
+            guard response == .OK, let pickedURL = panel.url else { return }
+            // Index may have shifted if other recents mutated while the panel
+            // was open; look the URL up again rather than trusting `index`.
+            let currentIndex = recentFilesManager.recentFiles.firstIndex(of: originalURL) ?? index
+            guard recentFilesManager.replaceBookmark(at: currentIndex, with: pickedURL) else {
+                alertManager.showAlert(
+                    title: "Couldn't Save Bookmark",
+                    message: "Failed to create a security-scoped bookmark for the selected file."
+                )
+                return
+            }
+            let result = documentManager.openDocument(pickedURL)
+            switch result {
+            case .success, .alreadyOpen:
+                break
+            case .tooManyTabs:
+                alertManager.showAlert(title: "Too Many Tabs", message: "Close some tabs before opening a new document.")
+            case .fileNotReadable:
+                alertManager.showAlert(title: "File Not Accessible", message: "Couldn't open the file after locating it.")
+            case .invalidPDF:
+                alertManager.showAlert(title: "Invalid PDF", message: "This file is not a valid PDF document.")
+            }
+        }
+    }
+
     // MARK: - Main Content
     @ViewBuilder
     private var mainContent: some View {
