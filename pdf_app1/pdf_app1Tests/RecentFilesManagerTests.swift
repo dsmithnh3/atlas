@@ -266,6 +266,43 @@ final class RecentFilesManagerTests: XCTestCase {
         XCTAssertEqual(persisted.count, 1, "still exactly one bookmark on disk")
     }
 
+    /// `replaceBookmark` must clear the stale-launch counter keyed on the
+    /// OLD path. Otherwise UserDefaults accumulates dead counter entries
+    /// forever, and a re-add of the old path later inherits a stale count.
+    func testReplaceBookmark_ClearsStaleCounterForOldPath() throws {
+        let suiteName = "RecentFilesManagerTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let oldURL = URL(fileURLWithPath: "/tmp/atlas-old-\(UUID().uuidString).pdf")
+        let newURL = URL(fileURLWithPath: "/tmp/atlas-new-\(UUID().uuidString).pdf")
+
+        // Add + 2 stale launches → counter[oldPath] = 2.
+        let s1 = RecentFilesManager(userDefaults: defaults, bookmarker: URLDataBookmarker())
+        s1.addRecentFile(oldURL)
+        waitForFileChecks(s1)
+        let s2 = RecentFilesManager(userDefaults: defaults, bookmarker: URLDataBookmarker())
+        waitForFileChecks(s2)
+        let s3 = RecentFilesManager(userDefaults: defaults, bookmarker: URLDataBookmarker())
+        waitForFileChecks(s3)
+
+        let counterKey = "RecentFiles.staleLaunchCounter"
+        let counterBefore = defaults.dictionary(forKey: counterKey) as? [String: Int] ?? [:]
+        XCTAssertEqual(counterBefore[oldURL.path], 2, "counter should be at 2 after 2 stale launches")
+
+        XCTAssertTrue(s3.replaceBookmark(at: 0, with: newURL))
+
+        let counterAfter = defaults.dictionary(forKey: counterKey) as? [String: Int] ?? [:]
+        XCTAssertNil(counterAfter[oldURL.path],
+                     "stale counter for the OLD path must be cleared after replaceBookmark")
+        XCTAssertNil(counterAfter[newURL.path],
+                     "new path should not inherit any stale count")
+    }
+
     /// Cross-reboot tracer: a file added in one manager instance is still
     /// present after a "reboot" (new manager with the same UserDefaults).
     func testFilesPersistAcrossReboot() throws {
