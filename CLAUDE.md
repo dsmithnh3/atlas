@@ -24,7 +24,8 @@
 - `AIServiceManager`: Multi-backend support (Claude, OpenAI, Gemini, Ollama) via `AtlasModelProtocol`. API keys in Keychain, response caching via SHA256 hash.
 
 ### Annotations (`Atlas/Annotations/`)
-- `AnnotationGeometry`: Pure-value module for annotation move/resize math. `DragHandle` enum (8 corner/edge handles + `.body`), `translated(by:)`, `resized(handle:by:)`, `handle(at:)` hit-test, with page-bounds + min-size clamping. Used by `.select` `AnnotationMode` for body-drag-to-translate; corner/edge resize wiring is the next chunk.
+- `AnnotationGeometry`: Pure-value module for annotation move/resize math. `DragHandle` enum (8 corner/edge handles + `.body`), `translated(by:)`, `resized(handle:by:)`, `handle(at:)` hit-test, with page-bounds + min-size clamping. Consumed by `.select` `AnnotationMode` in `PDFViewRepresentable.handleSelectPan` for body-drag-to-translate and corner/edge-drag-to-resize.
+- `SelectionChromeOverlay` (embedded in `PDFViewRepresentable.swift`): NSView subview of `pdfView` that draws the 1pt accent outline + 8 filled handles for the current selection. Click-through (`hitTest -> nil`); invalidates on scale/page/scroll notifications.
 
 ### PDF-Map Sync (`Atlas/Sync/`)
 - `BidirectionalSyncManager`: PDF scroll → updates `activeNodeID` on map. Map node click → jumps PDF to source page via `navigateToPDFPage` callback.
@@ -32,8 +33,8 @@
 - `HighlightSyncBridge`: Manages Atlas-tagged PDF annotations (`atlas:{nodeID}`). Pulse animation (0.6 alpha, 800ms) on navigation.
 
 ### Persistence (`Atlas/Persistence/`)
-- `GraphStore`: Per-document JSON in `~/Library/Application Support/Atlas/graphs/` (filename = SHA256 of URL). Debounced saves (1s). Also supports per-project graphs.
-- `GraphMergeEngine`: Cross-document dedup via Levenshtein similarity (>0.5 threshold) + optional LLM semantic matching.
+- `GraphStore`: Per-document JSON in `~/Library/Application Support/Atlas/graphs/` (filename = SHA256 of URL). Debounced saves (1s).
+- `GraphMergeEngine`: dormant. Cross-doc merging now goes through `KnowledgeGraph.node(matching:)` baseline plus the SCE/ETR experiments on feature branches. `MergeProposalView` is never instantiated.
 
 ### Other Key Files
 - `MultiDocumentView.swift`: Tab management, sidebar sections (open docs, projects, recents), comparison mode.
